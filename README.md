@@ -22,3 +22,7 @@
 - Sử dụng tài khoản smiledev_wap và mật khẩu [-----------] 
 - Kiểm tra kết nối rồi test login ( Mật khẩu bị mã hóa nên cần dùng công cụ dịch ngược để lấy mật khẩu )
 
+5. Tài khoản test app 
+
+- Username: seller
+- Password: admin1234

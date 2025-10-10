@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu } = require('electron');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 const mysql = require('mysql2/promise');
@@ -36,38 +36,61 @@ function createWindow () {
       contextIsolation: true,
       nodeIntegration: false
     }
+    ,
+    // hide the menu bar by default; user can press Alt to show it if needed
+    autoHideMenuBar: true,
+    menuBarVisible: false
   });
 
   win.loadFile('index.html');
+  win.setTitle('Bán Hàng Rong');
+  // ensure application menu is removed and per-window menu bar hidden
+  try {
+    Menu.setApplicationMenu(null);
+  } catch (e) {}
+  try { win.setMenuBarVisibility(false); win.setAutoHideMenuBar(true); } catch(e) {}
   // win.webContents.openDevTools();
 }
 
-app.whenReady().then(createWindow);
-
-// initialize DB pool (non-blocking)
-initDbPool();
-
-// IPC handlers
-ipcMain.handle('ping', async () => {
-  return 'pong';
+app.whenReady().then(() => {
+  // remove the app menu globally
+  try { Menu.setApplicationMenu(null); } catch (e) {}
+  // set application user model id so Windows shows correct app name
+  try { if (process.platform === 'win32') app.setAppUserModelId('com.banhangrong.app'); } catch(e) {}
+  createWindow();
 });
 
-ipcMain.handle('db-test', async () => {
-  if (!pool) {
-    return { ok: false, message: 'DB pool not initialized' };
-  }
+async function createPool() {
+  if (pool) return pool;
+  const cfg = {
+    host: process.env.DB_HOST,
+    database: process.env.DB_NAME,
+    user: process.env.DB_USERNAME,
+    password: process.env.DB_PASSWORD,
+    connectTimeout: parseInt(process.env.DB_CONNECT_TIMEOUT || '10000', 10),
+  };
+  pool = mysql.createPool(cfg);
+  return pool;
+}
+
+// Startup check: used by loading screen to verify DB connectivity before showing login
+ipcMain.handle('startup-check', async () => {
   try {
+    await createPool();
     const conn = await pool.getConnection();
     await conn.ping();
     conn.release();
     return { ok: true, message: 'connected' };
   } catch (err) {
+    // ensure pool is null so next attempt will recreate
+    try { if (pool && pool.end) await pool.end(); } catch(e){}
+    pool = null;
     return { ok: false, message: err.message };
   }
 });
 
 ipcMain.handle('db-query', async (_e, sql, params) => {
-  if (!pool) throw new Error('DB pool not initialized');
+  await createPool();
   const [rows] = await pool.execute(sql, params || []);
   return rows;
 });

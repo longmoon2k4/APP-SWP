@@ -1,5 +1,5 @@
 {
-  "name": "simple-electron-app",
+  "name": "ban-hang-rong",
   "version": "0.1.0",
   "description": "Minimal Electron desktop app base",
   "main": "main.js",
@@ -22,8 +22,8 @@
     "electron-builder": "^24.0.0"
   },
   "build": {
-    "appId": "com.example.simpleelectronapp",
-    "productName": "Simple Electron App",
+  "appId": "com.banhangrong.app",
+  "productName": "Bán Hàng Rong",
     "directories": {
       "output": "dist"
     },
