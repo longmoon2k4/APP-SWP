@@ -2,6 +2,7 @@
 
 1. Cài đặt
 
+- Cần phải có node.js và python trước
 - Anh em clone về thì nhớ tạo file .env với config mình đưa trước trong Zalo
 - Mở terminal lên rồi chạy lệnh "npm install"
 
