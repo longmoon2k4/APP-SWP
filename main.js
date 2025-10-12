@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, shell } = require('electron');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 const mysql = require('mysql2/promise');
@@ -29,8 +29,9 @@ async function initDbPool() {
 
 function createWindow () {
   const win = new BrowserWindow({
-    width: 900,
-    height: 700,
+    width: 1024,
+    height: 768,
+    resizable: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -43,7 +44,7 @@ function createWindow () {
   });
 
   win.loadFile('index.html');
-  win.setTitle('Bán Hàng Rong');
+  win.setTitle('Bán Hàng Rong - System Demo');
   // ensure application menu is removed and per-window menu bar hidden
   try {
     Menu.setApplicationMenu(null);
@@ -95,6 +96,17 @@ ipcMain.handle('db-query', async (_e, sql, params) => {
   return rows;
 });
 
+// open external URLs from renderer via preload
+ipcMain.handle('open-external', async (_e, url) => {
+  try {
+    if (!url) throw new Error('No URL provided');
+    await shell.openExternal(url);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, message: err.message };
+  }
+});
+
 // Authentication: verify user by username or email, then update last_login
 ipcMain.handle('auth-login', async (_e, identifier, password) => {
   if (!pool) throw new Error('DB pool not initialized');
@@ -109,6 +121,66 @@ ipcMain.handle('auth-login', async (_e, identifier, password) => {
     // update last_login
     await pool.execute('UPDATE users SET last_login = NOW() WHERE user_id = ?', [user.user_id]);
     // return user info without password
+    return { ok: true, user: { user_id: user.user_id, username: user.username, email: user.email } };
+  } catch (err) {
+    return { ok: false, message: err.message };
+  }
+});
+
+// Extended authentication: accept a payload with more query fields and options
+ipcMain.handle('auth-login-ex', async (_e, payload) => {
+  if (!pool) throw new Error('DB pool not initialized');
+  try {
+    const p = payload || {};
+    const identifier = (p.identifier || '').trim();
+    const phone = (p.phone || '').trim();
+    const fullname = (p.fullname || '').trim();
+    const store = (p.store || '').trim();
+    const role = (p.role || '').trim();
+    const password = p.password || '';
+    const options = p.options || {};
+
+    const clauses = [];
+    const params = [];
+
+    if (identifier) {
+      if (options.strict) {
+        clauses.push('(username = ? OR email = ?)');
+        params.push(identifier, identifier);
+      } else {
+        clauses.push('(username LIKE ? OR email LIKE ?)');
+        params.push('%' + identifier + '%', '%' + identifier + '%');
+      }
+    }
+    if (phone) {
+      if (options.strict) { clauses.push('phone = ?'); params.push(phone); }
+      else { clauses.push('phone LIKE ?'); params.push('%' + phone + '%'); }
+    }
+    if (fullname) {
+      if (options.strict) { clauses.push('fullname = ?'); params.push(fullname); }
+      else { clauses.push('fullname LIKE ?'); params.push('%' + fullname + '%'); }
+    }
+    if (store) { clauses.push('store_id = ?'); params.push(store); }
+    if (role) { clauses.push('role = ?'); params.push(role); }
+
+    // Build SQL; if no specialized clauses provided, fall back to username/email behavior
+    let sql = 'SELECT user_id, username, email, password FROM users';
+    if (clauses.length) {
+      sql += ' WHERE ' + clauses.join(' AND ');
+    } else if (identifier) {
+      sql += ' WHERE username = ? OR email = ?';
+      params.push(identifier, identifier);
+    }
+
+    if (options.orderByLastLogin) sql += ' ORDER BY last_login DESC';
+    sql += ' LIMIT 1';
+
+    const [rows] = await pool.execute(sql, params);
+    if (!rows || rows.length === 0) return { ok: false, message: 'User not found', details: 'No user matched query' };
+    const user = rows[0];
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) return { ok: false, message: 'Invalid credentials' };
+    await pool.execute('UPDATE users SET last_login = NOW() WHERE user_id = ?', [user.user_id]);
     return { ok: true, user: { user_id: user.user_id, username: user.username, email: user.email } };
   } catch (err) {
     return { ok: false, message: err.message };

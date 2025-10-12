@@ -1,163 +1,523 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Bán Hàng Rong</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
-    <style>
-      :root{
-        --bg:#0f1724;
-        --panel:#0b1220;
-        --muted:#9aa4b2;
-        --accent:#6ee7b7;
-        --card:#0b1320aa;
-        --glass: rgba(255,255,255,0.03);
-        --radius:12px;
-        --text:#e6eef6;
-      }
-      /* light theme class toggled on documentElement */
-      .light-theme{
-        --bg: #f6f8fb;
-        --panel: #ffffff;
-        --muted: #6b7280;
-        --accent: #34d399;
-        --card: rgba(255,255,255,0.85);
-        --glass: rgba(2,6,23,0.03);
-        --text: #0b1220;
-      }
-    *{box-sizing:border-box}
-    html,body{height:100%;margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,'Helvetica Neue',Arial;color:var(--text);background:linear-gradient(180deg,#0b1220 0%, #0b1220 100%);transition:background 240ms ease,color 240ms ease;}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0f1724;
+      --panel: #0b1220;
+      --muted: #9aa4b2;
+      --accent: #6ee7b7;
+      --card: #0b1320aa;
+      --glass: rgba(255, 255, 255, 0.03);
+      --radius: 12px;
+      --text: #e6eef6;
+    }
+
+    /* light theme class toggled on documentElement */
+    .light-theme {
+      --bg: #f6f8fb;
+      --panel: #ffffff;
+      --muted: #6b7280;
+      --accent: #34d399;
+      --card: rgba(255, 255, 255, 0.85);
+      --glass: rgba(2, 6, 23, 0.03);
+      --text: #0b1220;
+    }
+
+    * {
+      box-sizing: border-box
+    }
+
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+      font-family: Inter, system-ui, Segoe UI, Roboto, 'Helvetica Neue', Arial;
+      color: var(--text);
+      background: linear-gradient(180deg, #0b1220 0%, #0b1220 100%);
+      transition: background 240ms ease, color 240ms ease;
+    }
+
     /* gradient background layer */
-    .bg{position:fixed;inset:0;background:radial-gradient(1000px 600px at 70% 20%, rgba(59,130,246,0.18), transparent 60%),
-                    radial-gradient(900px 520px at 30% 80%, rgba(16,185,129,0.14), transparent 60%),
-                    linear-gradient(180deg,#0a1020 0%, #0b1220 100%);z-index:0}
+    .bg {
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(1000px 600px at 70% 20%, rgba(59, 130, 246, 0.18), transparent 60%),
+        radial-gradient(900px 520px at 30% 80%, rgba(16, 185, 129, 0.14), transparent 60%),
+        linear-gradient(180deg, #0a1020 0%, #0b1220 100%);
+      z-index: 0
+    }
+
     /* star canvas above gradient */
-  #bg-canvas{position:fixed;inset:0;z-index:1;pointer-events:none}
-  /* cloud canvas for light theme */
-  #cloud-canvas{position:fixed;inset:0;z-index:1;pointer-events:none;opacity:0;transition:opacity 500ms ease}
-  .light-theme #cloud-canvas{opacity:1}
-  /* sun element */
-  #sun{position:fixed;top:60px;right:120px;width:80px;height:80px;border-radius:50%;background:radial-gradient(circle at 30% 30%, #fff9c4, #fde047 60%, #f59e0b 100%);box-shadow:0 0 60px rgba(253,224,71,0.45);z-index:2;opacity:0;transform:translateY(-10px);transition:opacity 500ms ease, transform 600ms ease}
-  .light-theme #sun{opacity:1;transform:translateY(0)}
+    #bg-canvas {
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+      pointer-events: none
+    }
+
+    /* cloud canvas for light theme */
+    #cloud-canvas {
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 500ms ease
+    }
+
+    .light-theme #cloud-canvas {
+      opacity: 1
+    }
+
+    /* sun element */
+    #sun {
+      position: fixed;
+      top: 60px;
+      right: 120px;
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 30% 30%, #fff9c4, #fde047 60%, #f59e0b 100%);
+      box-shadow: 0 0 60px rgba(253, 224, 71, 0.45);
+      z-index: 2;
+      opacity: 0;
+      transform: translateY(-10px);
+      transition: opacity 500ms ease, transform 600ms ease
+    }
+
+    .light-theme #sun {
+      opacity: 1;
+      transform: translateY(0)
+    }
+
     /* light theme background variants */
-  .light-theme .bg{background:radial-gradient(900px 540px at 70% 18%, rgba(59,130,246,0.16), transparent 60%),
-              radial-gradient(800px 520px at 28% 78%, rgba(52,211,153,0.13), transparent 60%),
-              linear-gradient(180deg,#e8f0fa 0%, #d9e4f4 100%)}
-      .app{display:flex;min-height:100vh}
-      .sidebar{width:260px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));padding:28px;backdrop-filter:blur(6px);border-right:1px solid rgba(255,255,255,0.04)}
-      .brand{display:flex;align-items:center;gap:12px;margin-bottom:18px}
-      .logo{width:44px;height:44px;background:linear-gradient(135deg,var(--accent),#60a5fa);border-radius:10px;display:flex;align-items:center;justify-content:center;color:#04202a;font-weight:700}
-      .brand h1{font-size:18px;margin:0}
-      .nav{margin-top:12px}
-      .nav button{display:block;width:100%;text-align:left;padding:10px 12px;border-radius:8px;background:transparent;border:none;color:var(--muted);margin-bottom:8px}
-  .content{flex:1;padding:28px;position:relative;z-index:2}
-  .hero{position:absolute;top:48px;left:0;right:0;text-align:center;z-index:2}
-      .brand-title{letter-spacing:0.5rem;font-weight:800;font-size:40px;margin:0;color:#e8f2ff;position:relative;display:inline-block}
-      /* subtle float + glow pulse */
-      .brand-title{animation:floatY 6s ease-in-out infinite, glowPulse 4.5s ease-in-out infinite}
-      .brand-title::after{
-        /* shine sweep */
-        content: attr(data-text);
-        position:absolute;inset:0;left:0;top:0;
-        -webkit-mask: linear-gradient(120deg, transparent 0%, rgba(0,0,0,0.8) 20%, rgba(0,0,0,1) 35%, rgba(0,0,0,0.8) 50%, transparent 70%) left/300% 100% no-repeat;
-        mask: linear-gradient(120deg, transparent 0%, rgba(0,0,0,0.8) 20%, rgba(0,0,0,1) 35%, rgba(0,0,0,0.8) 50%, transparent 70%) left/300% 100% no-repeat;
-        animation: shine 5.5s linear infinite;
-        color: currentColor;
+    .light-theme .bg {
+      background: radial-gradient(900px 540px at 70% 18%, rgba(59, 130, 246, 0.16), transparent 60%),
+        radial-gradient(800px 520px at 28% 78%, rgba(52, 211, 153, 0.13), transparent 60%),
+        linear-gradient(180deg, #e8f0fa 0%, #d9e4f4 100%)
+    }
+
+    .app {
+      display: flex;
+      min-height: 100vh
+    }
+
+    .sidebar {
+      width: 260px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01));
+      padding: 28px;
+      backdrop-filter: blur(6px);
+      border-right: 1px solid rgba(255, 255, 255, 0.04)
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 18px
+    }
+
+    .logo {
+      width: 44px;
+      height: 44px;
+      background: linear-gradient(135deg, var(--accent), #60a5fa);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #04202a;
+      font-weight: 700
+    }
+
+    .brand h1 {
+      font-size: 18px;
+      margin: 0
+    }
+
+    .nav {
+      margin-top: 12px
+    }
+
+    .nav button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      margin-bottom: 8px
+    }
+
+    .content {
+      flex: 1;
+      padding: 28px;
+      position: relative;
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 18px;
+    }
+
+    /* keep hero in normal flow so it doesn't overlap the cards */
+    .hero {
+      position: relative;
+      margin-top: 18px;
+      margin-bottom: 6px;
+      text-align: center;
+      z-index: 2;
+      width: 100%;
+      display: flex;
+      justify-content: center;
+    }
+
+    .brand-title {
+      letter-spacing: 0.35rem;
+      font-weight: 800;
+      font-size: 36px;
+      margin: 0;
+      color: #e8f2ff;
+      position: relative;
+      display: inline-block;
+      padding: 6px 12px;
+      background: rgba(255,255,255,0.02);
+      border-radius: 10px;
+    }
+
+    /* responsive scaling for small windows */
+    @media (max-width:800px) {
+      .brand-title { font-size: 26px; letter-spacing: 0.2rem }
+      .content { padding: 18px }
+      #login-card { width: 100% !important; max-width: 520px }
+    }
+
+    /* cleaner brand title: gradient text with a subtle fade/slide-in */
+    .brand-title {
+      /* animated gradient text */
+      background: linear-gradient(90deg, #60a5fa 0%, #7c3aed 25%, #06b6d4 50%, #34d399 75%, #f59e0b 100%);
+      background-size: 200% 100%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      font-weight: 800;
+      transform: translateY(-6px);
+      opacity: 0;
+      animation: titleIn 620ms cubic-bezier(.2,.9,.3,1) forwards, gradientShift 6s linear infinite;
+    }
+
+    @keyframes titleIn {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .light-theme .brand-title {
+      /* lighter theme variant: keep animated gradient but with darker tones for contrast */
+      background: linear-gradient(90deg, #0f172a 0%, #134e4a 30%, #0ea5a5 60%, #065f46 100%);
+      background-size: 200% 100%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      opacity: 0;
+      animation: titleIn 620ms cubic-bezier(.2,.9,.3,1) forwards, gradientShift 6s linear infinite;
+    }
+
+    @keyframes gradientShift {
+      0% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
+    }
+
+    .brand-badge {
+      position: absolute;
+      top: 24px;
+      left: 24px;
+      z-index: 3;
+      padding: 8px 10px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, 0.08)
+    }
+
+    .brand-badge img {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      object-fit: cover;
+      display: block
+    }
+
+    .toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 18px
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px
+    }
+
+    .card {
+      background: var(--glass);
+      padding: 22px;
+      border-radius: 16px;
+      box-shadow: 0 10px 40px rgba(2, 6, 23, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      transition: background 240ms ease, color 240ms ease, box-shadow 240ms ease
+    }
+
+    .light-theme .card {
+      box-shadow: 0 12px 28px rgba(15, 23, 42, 0.15)
+    }
+
+    .light-theme .glass {
+      background: rgba(255, 255, 255, 0.9);
+      border-color: rgba(15, 23, 42, 0.06)
+    }
+
+    .glass {
+      backdrop-filter: blur(8px)
+    }
+
+    .card h3 {
+      margin: 0 0 8px 0
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: 13px
+    }
+
+    .btn {
+      background: linear-gradient(90deg, var(--accent), #60a5fa);
+      border: none;
+      color: #04202a;
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 8px 22px rgba(16, 185, 129, 0.25);
+      transition: transform .1s ease, box-shadow .2s ease
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 12px 30px rgba(16, 185, 129, 0.35)
+    }
+
+    .btn.secondary {
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      color: var(--muted);
+      box-shadow: none
+    }
+
+    .light-theme .btn.secondary {
+      border-color: #d4dbe7
+    }
+
+    .input {
+      width: 100%;
+      padding: 12px 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      background: rgba(2, 6, 23, 0.2);
+      color: inherit;
+      outline: none
+    }
+
+    .input:focus {
+      border-color: rgba(99, 102, 241, 0.45);
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15)
+    }
+
+    .light-theme .input {
+      background: #ffffff;
+      border-color: #d9e2ec;
+      color: #0b1220
+    }
+
+    .input::placeholder {
+      color: #9aa4b2
+    }
+
+    .light-theme .input::placeholder {
+      color: #8a93a3
+    }
+
+    .form-row {
+      margin-top: 10px
+    }
+
+    .status-pill {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--muted);
+      font-weight: 600
+    }
+
+    .toast {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      background: #07202a;
+      color: var(--accent);
+      padding: 12px 16px;
+      border-radius: 10px;
+      box-shadow: 0 8px 30px rgba(2, 6, 23, 0.6);
+      display: none
+    }
+
+    @media (max-width:700px) {
+      .sidebar {
+        display: none
       }
-      @keyframes floatY { 0%,100%{ transform:translateY(0) } 50%{ transform:translateY(-6px) } }
-      @keyframes glowPulse { 0%,100%{ text-shadow:0 12px 30px rgba(59,130,246,0.15),0 0 30px rgba(255,255,255,0.06) } 50%{ text-shadow:0 16px 34px rgba(59,130,246,0.22),0 0 40px rgba(255,255,255,0.10) } }
-      @keyframes shine { from{ -webkit-mask-position:left; mask-position:left } to{ -webkit-mask-position:right; mask-position:right } }
-      .light-theme .brand-title{color:#0f172a}
-      .light-theme .brand-title{animation:floatY 6s ease-in-out infinite, glowPulseLight 4.5s ease-in-out infinite}
-      .light-theme .brand-title::after{animation:shine 6s linear infinite}
-      @keyframes glowPulseLight { 0%,100%{ text-shadow:0 8px 22px rgba(59,130,246,0.12) } 50%{ text-shadow:0 10px 26px rgba(59,130,246,0.18) } }
-  .brand-badge{position:absolute;top:24px;left:24px;z-index:3;padding:8px 10px;border-radius:12px;background:rgba(255,255,255,0.05);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,0.08)}
-  .brand-badge img{width:40px;height:40px;border-radius:10px;object-fit:cover;display:block}
-      .toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
-      .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
-  .card{background:var(--glass);padding:22px;border-radius:16px;box-shadow:0 10px 40px rgba(2,6,23,0.55), inset 0 1px 0 rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);transition:background 240ms ease,color 240ms ease,box-shadow 240ms ease}
-  .light-theme .card{box-shadow:0 12px 28px rgba(15,23,42,0.15)}
-  .light-theme .glass{background:rgba(255,255,255,0.9);border-color:rgba(15,23,42,0.06)}
-    .glass{backdrop-filter: blur(8px)}
-      .card h3{margin:0 0 8px 0}
-      .muted{color:var(--muted);font-size:13px}
-    .btn{background:linear-gradient(90deg,var(--accent),#60a5fa);border:none;color:#04202a;padding:10px 14px;border-radius:10px;font-weight:600;cursor:pointer;box-shadow:0 8px 22px rgba(16,185,129,0.25);transition:transform .1s ease, box-shadow .2s ease}
-    .btn:hover{transform:translateY(-1px);box-shadow:0 12px 30px rgba(16,185,129,0.35)}
-  .btn.secondary{background:transparent;border:1px solid rgba(255,255,255,0.10);color:var(--muted);box-shadow:none}
-  .light-theme .btn.secondary{border-color:#d4dbe7}
-  .input{width:100%;padding:12px 12px;border-radius:10px;border:1px solid rgba(255,255,255,0.06);background:rgba(2,6,23,0.2);color:inherit;outline:none}
-    .input:focus{border-color:rgba(99,102,241,0.45);box-shadow:0 0 0 3px rgba(99,102,241,0.15)}
-  .light-theme .input{background:#ffffff;border-color:#d9e2ec;color:#0b1220}
-  .input::placeholder{color:#9aa4b2}
-  .light-theme .input::placeholder{color:#8a93a3}
-      .form-row{margin-top:10px}
-      .status-pill{display:inline-block;padding:6px 10px;border-radius:999px;background:rgba(255,255,255,0.03);color:var(--muted);font-weight:600}
-      .toast{position:fixed;right:20px;bottom:20px;background:#07202a;color:var(--accent);padding:12px 16px;border-radius:10px;box-shadow:0 8px 30px rgba(2,6,23,0.6);display:none}
-      @media (max-width:700px){.sidebar{display:none}.content{padding:16px}}
-    </style>
-  </head>
-  <body>
-    <!-- background layers: gradient + stars canvas -->
-    <div class="bg"></div>
-    <canvas id="bg-canvas"></canvas>
-    <canvas id="cloud-canvas"></canvas>
-    <div id="sun" aria-hidden="true"></div>
-    <div class="app">
-      <main class="content" style="display:flex;align-items:center;justify-content:center;position:relative;">
-        <!-- theme toggle -->
-        <div style="position:absolute;top:18px;right:24px;display:flex;gap:8px;align-items:center;z-index:3">
-          <button id="theme-toggle" class="btn secondary theme-switch" title="Toggle light / dark" aria-label="Toggle theme">🌙</button>
+
+      .content {
+        padding: 16px
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <!-- background layers: gradient + stars canvas -->
+  <div class="bg"></div>
+  <canvas id="bg-canvas"></canvas>
+  <canvas id="cloud-canvas"></canvas>
+  <div id="sun" aria-hidden="true"></div>
+  <div class="app">
+  <main class="content" style="display:flex;flex-direction:column;align-items:center;justify-content:flex-start;position:relative;">
+      <!-- theme toggle -->
+      <div style="position:absolute;top:18px;right:24px;display:flex;gap:8px;align-items:center;z-index:3">
+        <button id="theme-toggle" class="btn secondary theme-switch" title="Toggle light / dark"
+          aria-label="Toggle theme">🌙</button>
+      </div>
+
+      <!-- brand hero -->
+      <header class="hero" aria-label="brand">
+        <h1 class="brand-title" data-text="BÁN HÀNG RONG">BÁN HÀNG RONG</h1>
+      </header>
+
+      <!-- top-left brand logo -->
+      <div class="brand-badge">
+        <img id="app-logo" src="img/img_1.jpg" alt="logo" />
+      </div>
+      <div id="loading-card" class="card glass" style="width:460px;text-align:center">
+        <h3 id="loading-title">Starting application</h3>
+        <p id="loading-sub" class="muted">Checking services...</p>
+        <div id="loading-spinner" style="margin-top:18px">
+          <svg width="48" height="48" viewBox="0 0 50 50">
+            <circle cx="25" cy="25" r="20" stroke="#6ee7b7" stroke-width="4" stroke-linecap="round" fill="none"
+              stroke-dasharray="90 150">
+              <animateTransform attributeName="transform" type="rotate" from="0 25 25" to="360 25 25" dur="1s"
+                repeatCount="indefinite" />
+            </circle>
+          </svg>
+        </div>
+        <div style="margin-top:16px">
+          <button id="retry-btn" class="btn secondary" style="display:none">Retry</button>
+        </div>
+      </div>
+
+      <div id="mode-card" class="card glass" style="width:520px;display:none;position:relative;text-align:center">
+        <h3>Chọn chức năng</h3>
+        <div class="muted">Vui lòng chọn hành động bạn muốn thực hiện</div>
+        <div style="margin-top:18px;display:flex;gap:12px;justify-content:center;align-items:center">
+          <button id="choose-login" class="btn">Đăng nhập</button>
+          <button id="choose-buy" class="btn secondary">Mua key</button>
+        </div>
+        <div style="margin-top:12px" class="muted">Bạn có thể mua key qua trang web của chúng tôi</div>
+      </div>
+
+      <div id="session-card" class="card glass" style="width:520px;display:none;position:relative;text-align:center">
+        <h3 id="session-title">Đã đăng nhập</h3>
+        <div id="session-user" class="muted">User</div>
+        <div style="margin-top:18px;display:flex;gap:12px;justify-content:center;align-items:center">
+          <button id="btn-back" class="btn secondary">Quay lại phần chọn</button>
+          <button id="btn-logout" class="btn">Đăng xuất</button>
+        </div>
+      </div>
+
+      <div id="login-card" class="card glass" style="width:520px;display:none;position:relative">
+        <h3>Sign in</h3>
+        <div class="muted">Sign in with username, email or phone. Provide additional info to query the DB more precisely.</div>
+
+        <div class="form-row">
+          <label class="muted">Tên người dùng hoặc Email</label>
+          <input id="login-identifier" class="input" type="text" placeholder="Nhập tên người dùng hoặc email" />
         </div>
 
-        <!-- brand hero -->
-        <header class="hero" aria-label="brand">
-          <h1 class="brand-title" data-text="BÁN HÀNG RONG">BÁN HÀNG RONG</h1>
-        </header>
-
-        <!-- top-left brand logo -->
-        <div class="brand-badge">
-          <img id="app-logo" src="img/img_1.jpg" alt="logo" />
-        </div>
-        <div id="loading-card" class="card glass" style="width:460px;text-align:center">
-          <h3 id="loading-title">Starting application</h3>
-          <p id="loading-sub" class="muted">Checking services...</p>
-          <div id="loading-spinner" style="margin-top:18px">
-            <svg width="48" height="48" viewBox="0 0 50 50">
-              <circle cx="25" cy="25" r="20" stroke="#6ee7b7" stroke-width="4" stroke-linecap="round" fill="none" stroke-dasharray="90 150">
-                <animateTransform attributeName="transform" type="rotate" from="0 25 25" to="360 25 25" dur="1s" repeatCount="indefinite" />
-              </circle>
-            </svg>
-          </div>
-          <div style="margin-top:16px">
-            <button id="retry-btn" class="btn secondary" style="display:none">Retry</button>
-          </div>
+        <div class="form-row">
+          <label class="muted">Số điện thoại (tùy chọn)</label>
+          <input id="login-phone" class="input" type="tel" placeholder="Nhập số điện thoại" />
         </div>
 
-        <div id="login-card" class="card glass" style="width:480px;display:none;position:relative">
-          <h3>Sign in</h3>
-          <div class="muted">Sign in with username or email</div>
-          <div class="form-row">
-            <label class="muted">Tên người dùng hoặc Email</label>
-            <input id="login-identifier" class="input" type="text" placeholder="Nhập tên người dùng hoặc email" />
+        <div class="form-row">
+          <label class="muted">Mật khẩu</label>
+          <input id="login-password" class="input" type="password" placeholder="Nhập mật khẩu của bạn" />
+        </div>
+
+        <div class="form-row">
+          <label class="muted">Họ và tên (tùy chọn)</label>
+          <input id="login-fullname" class="input" type="text" placeholder="Tên đầy đủ (nếu cần cho truy vấn)" />
+        </div>
+
+        <div class="form-row" style="display:flex;gap:12px;align-items:center;margin-top:10px">
+          <div style="flex:1">
+            <label class="muted">Mã cửa hàng / Chi nhánh (optional)</label>
+            <input id="login-store" class="input" type="text" placeholder="Mã cửa hàng hoặc chi nhánh" />
           </div>
-          <div class="form-row">
-            <label class="muted">Mật khẩu</label>
-            <input id="login-password" class="input" type="password" placeholder="Nhập mật khẩu của bạn" />
-          </div>
-          <div class="form-row" style="display:flex;gap:12px;margin-top:14px;align-items:center">
-            <button class="btn cta" id="login-btn">Sign in</button>
-            <div id="login-status" class="muted">Not logged in</div>
+          <div style="width:140px">
+            <label class="muted">Vai trò</label>
+            <select id="login-role" class="input">
+              <option value="">(any)</option>
+              <option value="seller">Seller</option>
+              <option value="manager">Manager</option>
+              <option value="admin">Admin</option>
+            </select>
           </div>
         </div>
-      </main>
-    </div>
 
-    <div id="toast" class="toast"></div>
+        <details style="margin-top:12px" class="muted">
+          <summary style="cursor: pointer;">Advanced query options</summary>
+          <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <label style="display:flex;gap:8px;align-items:center"><input id="opt-strict" type="checkbox"> Strict match</label>
+            <label style="display:flex;gap:8px;align-items:center"><input id="opt-include-disabled" type="checkbox"> Include disabled users</label>
+            <label style="display:flex;gap:8px;align-items:center"><input id="opt-last-login" type="checkbox"> Order by last_login</label>
+          </div>
+        </details>
 
-    <script src="renderer.js"></script>
-  </body>
+        <div class="form-row" style="display:flex;gap:12px;margin-top:14px;align-items:center">
+          <button class="btn cta" id="login-btn">Sign in</button>
+          <button class="btn secondary" id="clear-btn">Clear</button>
+          <div id="login-status" class="muted">Not logged in</div>
+        </div>
+        <div id="login-errors" class="muted" style="margin-top:8px;display:none;color:#fca5a5"></div>
+      </div>
+    </main>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="renderer.js"></script>
+</body>
+
 </html>

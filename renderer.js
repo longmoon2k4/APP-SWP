@@ -50,29 +50,31 @@ function initTheme(){
 }
 
 async function doStartupCheck(){
-  loadingTitle.textContent = 'Starting application';
-  loadingSub.textContent = 'Checking database connection...';
+  loadingTitle.textContent = 'Đang khởi động ứng dụng...';
+  loadingSub.textContent = 'Đang kiểm tra kết nối cơ sở dữ liệu...';
   retryBtn.style.display = 'none';
   try {
     const res = await window.electronAPI.startupCheck();
     if (res?.ok) {
-      loadingTitle.textContent = 'All services OK';
-      loadingSub.textContent = 'Ready — opening login';
-      setTimeout(()=>{
-        loadingCard.style.display = 'none';
-        loginCard.style.display = 'block';
-      }, 600);
+        loadingTitle.textContent = 'Tất cả dịch vụ đều hoạt động';
+        loadingSub.textContent = 'Sẵn sàng - chọn một hành động';
+        setTimeout(()=>{
+          loadingCard.style.display = 'none';
+          // show mode selection first
+          const modeCard = document.getElementById('mode-card');
+          if (modeCard) modeCard.style.display = 'block';
+        }, 600);
     } else {
-      loadingTitle.textContent = 'Startup error';
-      loadingSub.textContent = res?.message || 'Unknown error';
+      loadingTitle.textContent = 'Khởi động bị lỗi...';
+      loadingSub.textContent = res?.message || 'Lỗi không xác định';
       retryBtn.style.display = 'inline-block';
-      showToast('Startup failed: ' + (res?.message||'error'));
+      showToast('Khởi động thất bại: ' + (res?.message||'error'));
     }
   } catch (err) {
-    loadingTitle.textContent = 'Startup error';
+    loadingTitle.textContent = 'Khởi động bị lỗi...';
     loadingSub.textContent = err.message;
     retryBtn.style.display = 'inline-block';
-    showToast('Startup exception: ' + err.message,4000);
+    showToast('Khởi động bị lỗi: ' + err.message,4000);
   }
 }
 
@@ -84,37 +86,137 @@ window.addEventListener('DOMContentLoaded', () => { doStartupCheck(); });
 // initialize theme ASAP
 initTheme();
 
+// mode selection handlers
+const chooseLogin = document.getElementById('choose-login');
+const chooseBuy = document.getElementById('choose-buy');
+chooseLogin?.addEventListener('click', ()=>{
+  document.getElementById('mode-card').style.display = 'none';
+  loginCard.style.display = 'block';
+});
+chooseBuy?.addEventListener('click', async ()=>{
+  const buyUrl = 'https://smiledev.id.vn'; // change to real URL
+  if (window.electronAPI?.openExternal) {
+    await window.electronAPI.openExternal(buyUrl);
+  } else {
+    // fallback: open in new tab (if running in browser)
+    window.open(buyUrl, '_blank');
+  }
+});
+
 // Login handling (after startup check shows loginCard)
 const loginBtn = document.getElementById('login-btn');
+const clearBtn = document.getElementById('clear-btn');
 const loginIdentifier = document.getElementById('login-identifier');
+const loginPhone = document.getElementById('login-phone');
+const loginFullname = document.getElementById('login-fullname');
+const loginStore = document.getElementById('login-store');
+const loginRole = document.getElementById('login-role');
 const loginPassword = document.getElementById('login-password');
 const loginStatus = document.getElementById('login-status');
+const loginErrors = document.getElementById('login-errors');
 
-loginBtn.addEventListener('click', async () => {
+function showErrors(msg){
+  if (!loginErrors) return;
+  loginErrors.textContent = msg;
+  loginErrors.style.display = msg ? 'block' : 'none';
+}
+
+function clearForm(){
+  loginIdentifier.value = '';
+  loginPhone.value = '';
+  loginFullname.value = '';
+  loginStore.value = '';
+  loginRole.value = '';
+  loginPassword.value = '';
+  showErrors('');
+}
+
+clearBtn?.addEventListener('click', (e)=>{ e.preventDefault(); clearForm(); showToast('Cleared form',1200); });
+
+async function attemptLogin(){
+  showErrors('');
   loginStatus.textContent = 'Logging in...';
   try {
-    if (!window.electronAPI?.authLogin) {
+    const payload = {
+      identifier: loginIdentifier.value.trim(),
+      phone: loginPhone.value.trim(),
+      fullname: loginFullname.value.trim(),
+      store: loginStore.value.trim(),
+      role: loginRole.value,
+      password: loginPassword.value,
+      options: {
+        strict: document.getElementById('opt-strict')?.checked ?? false,
+        includeDisabled: document.getElementById('opt-include-disabled')?.checked ?? false,
+        orderByLastLogin: document.getElementById('opt-last-login')?.checked ?? false
+      }
+    };
+
+    // basic validation
+    if (!payload.identifier && !payload.phone) {
+      showErrors('Vui lòng nhập tên người dùng / email hoặc số điện thoại.');
+      loginStatus.textContent = 'Waiting for input';
+      return;
+    }
+
+    // prefer extended IPC if available
+    let res;
+    if (window.electronAPI?.authLoginEx) {
+      res = await window.electronAPI.authLoginEx(payload);
+    } else if (window.electronAPI?.authLogin) {
+      // fallback: keep old signature (identifier, pass)
+      res = await window.electronAPI.authLogin(payload.identifier || payload.phone, payload.password);
+    } else {
       loginStatus.textContent = 'authLogin not available';
       showToast('authLogin not available',2000);
       return;
     }
-    const id = loginIdentifier.value.trim();
-    const pw = loginPassword.value;
-    const res = await window.electronAPI.authLogin(id, pw);
+
     if (res?.ok) {
-      loginStatus.textContent = 'Logged in as ' + res.user.username;
-      showToast('Welcome ' + res.user.username,2500);
+      const username = res.user?.username || res.user?.id || 'user';
+      loginStatus.textContent = 'Logged in as ' + username;
+      showToast('Welcome ' + username,2500);
+      // hide login-card and show session card with logout/back buttons
+      setTimeout(()=>{
+        document.getElementById('login-card').style.display = 'none';
+        const sc = document.getElementById('session-card');
+        const su = document.getElementById('session-user');
+        if (su) su.textContent = username;
+        if (sc) sc.style.display = 'block';
+      }, 400);
     } else {
       loginStatus.textContent = 'Login failed: ' + (res?.message ?? 'unknown');
+      showErrors(res?.details || res?.message || 'Login failed');
       showToast('Login failed: ' + (res?.message ?? 'unknown'),3500);
     }
   } catch (err) {
     loginStatus.textContent = 'Error: ' + err.message;
+    showErrors(err.message);
     showToast('Error: ' + err.message,4000);
   }
-});
+}
 
-loginPassword.addEventListener('keyup', (e)=>{ if (e.key === 'Enter') loginBtn.click(); });
+loginBtn.addEventListener('click', async () => { await attemptLogin(); });
+
+loginPassword.addEventListener('keyup', (e)=>{ if (e.key === 'Enter') attemptLogin(); });
+
+// session actions: back to selection and logout
+const btnBack = document.getElementById('btn-back');
+const btnLogout = document.getElementById('btn-logout');
+btnBack?.addEventListener('click', ()=>{
+  document.getElementById('session-card').style.display = 'none';
+  const modeCard = document.getElementById('mode-card');
+  if (modeCard) modeCard.style.display = 'block';
+});
+btnLogout?.addEventListener('click', ()=>{
+  // clear any client session state (if implemented later)
+  document.getElementById('session-card').style.display = 'none';
+  const modeCard = document.getElementById('mode-card');
+  if (modeCard) modeCard.style.display = 'block';
+  showToast('Đã đăng xuất', 1800);
+  // reset login UI
+  clearForm();
+  loginStatus.textContent = 'Not logged in';
+});
 
 // --- Starfield background ---
 (() => {

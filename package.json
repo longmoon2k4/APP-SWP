@@ -29,7 +29,7 @@
     },
     "win": {
       "target": ["nsis", "portable"],
-      "icon": "build/icon.ico"
+      "icon": "img/white.png"
     },
     "nsis": {
       "oneClick": false,
