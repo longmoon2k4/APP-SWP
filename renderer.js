@@ -107,10 +107,6 @@ chooseBuy?.addEventListener('click', async ()=>{
 const loginBtn = document.getElementById('login-btn');
 const clearBtn = document.getElementById('clear-btn');
 const loginIdentifier = document.getElementById('login-identifier');
-const loginPhone = document.getElementById('login-phone');
-const loginFullname = document.getElementById('login-fullname');
-const loginStore = document.getElementById('login-store');
-const loginRole = document.getElementById('login-role');
 const loginPassword = document.getElementById('login-password');
 const loginStatus = document.getElementById('login-status');
 const loginErrors = document.getElementById('login-errors');
@@ -123,10 +119,6 @@ function showErrors(msg){
 
 function clearForm(){
   loginIdentifier.value = '';
-  loginPhone.value = '';
-  loginFullname.value = '';
-  loginStore.value = '';
-  loginRole.value = '';
   loginPassword.value = '';
   showErrors('');
 }
@@ -137,25 +129,55 @@ async function attemptLogin(){
   showErrors('');
   loginStatus.textContent = 'Logging in...';
   try {
+    // determine selected login method
+    const method = document.querySelector('input[name="login-method"]:checked')?.value || 'username';
+    const rawId = loginIdentifier.value.trim();
     const payload = {
-      identifier: loginIdentifier.value.trim(),
-      phone: loginPhone.value.trim(),
-      fullname: loginFullname.value.trim(),
-      store: loginStore.value.trim(),
-      role: loginRole.value,
-      password: loginPassword.value,
-      options: {
-        strict: document.getElementById('opt-strict')?.checked ?? false,
-        includeDisabled: document.getElementById('opt-include-disabled')?.checked ?? false,
-        orderByLastLogin: document.getElementById('opt-last-login')?.checked ?? false
-      }
+      identifier: rawId,
+      method,
+      password: loginPassword.value
     };
 
+    // if phone method, normalize and attach phone field
+    if (method === 'phone'){
+      // basic normalization: remove spaces, dashes, parentheses but keep leading +
+      let normalized = rawId.replace(/[^0-9+]/g,'');
+      // convert common international prefix for Vietnam (+84 or 84) to local 0-prefixed format
+      if (normalized.startsWith('+')){
+        if (normalized.startsWith('+84')) {
+          normalized = '0' + normalized.slice(3);
+        } else {
+          // drop other leading + for now
+          normalized = normalized.slice(1);
+        }
+      } else if (normalized.startsWith('84') && normalized.length > 2) {
+        // e.g. 8490... -> 090...
+        normalized = '0' + normalized.slice(2);
+      }
+      // ensure no accidental spaces
+      normalized = normalized.trim();
+      payload.phone = normalized;
+      // include DB-friendly column name in payload so main process can use it directly
+      payload.phone_number = normalized;
+    }
+
     // basic validation
-    if (!payload.identifier && !payload.phone) {
+    if (!payload.identifier) {
       showErrors('Vui lòng nhập tên người dùng / email hoặc số điện thoại.');
       loginStatus.textContent = 'Waiting for input';
       return;
+    }
+
+    // additional quick validation for phone method
+    if (method === 'phone'){
+      const p = payload.phone || '';
+      // require at least 7 digits (very simple check)
+      const digits = p.replace(/\D/g,'');
+      if (digits.length < 7){
+        showErrors('Số điện thoại không hợp lệ. Vui lòng kiểm tra lại.');
+        loginStatus.textContent = 'Waiting for input';
+        return;
+      }
     }
 
     // prefer extended IPC if available
@@ -163,8 +185,9 @@ async function attemptLogin(){
     if (window.electronAPI?.authLoginEx) {
       res = await window.electronAPI.authLoginEx(payload);
     } else if (window.electronAPI?.authLogin) {
-      // fallback: keep old signature (identifier, pass)
-      res = await window.electronAPI.authLogin(payload.identifier || payload.phone, payload.password);
+      // fallback: pass phone if method is phone, otherwise identifier
+      const userArg = method === 'phone' ? (payload.phone || payload.identifier) : payload.identifier;
+      res = await window.electronAPI.authLogin(userArg, payload.password);
     } else {
       loginStatus.textContent = 'authLogin not available';
       showToast('authLogin not available',2000);
@@ -198,6 +221,34 @@ async function attemptLogin(){
 loginBtn.addEventListener('click', async () => { await attemptLogin(); });
 
 loginPassword.addEventListener('keyup', (e)=>{ if (e.key === 'Enter') attemptLogin(); });
+
+// update identifier field based on selected method (username / email / phone)
+function updateIdentifierField(method){
+  const label = document.getElementById('login-identifier-label');
+  if (!loginIdentifier) return;
+  if (method === 'email'){
+    if (label) label.textContent = 'Email';
+    loginIdentifier.type = 'email';
+    loginIdentifier.placeholder = 'Nhập email của bạn';
+  } else if (method === 'phone'){
+    if (label) label.textContent = 'Số điện thoại';
+    loginIdentifier.type = 'tel';
+    loginIdentifier.placeholder = 'Nhập số điện thoại';
+  } else {
+    if (label) label.textContent = 'Tên người dùng';
+    loginIdentifier.type = 'text';
+    loginIdentifier.placeholder = 'Nhập tên người dùng';
+  }
+}
+
+// wire up radio buttons
+document.addEventListener('DOMContentLoaded', ()=>{
+  const radios = document.querySelectorAll('input[name="login-method"]');
+  radios.forEach(r => r.addEventListener('change', (e)=> updateIdentifierField(e.target.value)));
+  // set initial state
+  const init = document.querySelector('input[name="login-method"]:checked')?.value || 'username';
+  updateIdentifierField(init);
+});
 
 // session actions: back to selection and logout
 const btnBack = document.getElementById('btn-back');

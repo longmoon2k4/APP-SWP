@@ -112,7 +112,8 @@ ipcMain.handle('auth-login', async (_e, identifier, password) => {
   if (!pool) throw new Error('DB pool not initialized');
   try {
     const sql = 'SELECT user_id, username, email, password FROM users WHERE username = ? OR email = ? LIMIT 1';
-    const [rows] = await pool.execute(sql, [identifier, identifier]);
+  console.log('[auth-login] sql:', sql, 'params:', [identifier, identifier]);
+  const [rows] = await pool.execute(sql, [identifier, identifier]);
     if (!rows || rows.length === 0) return { ok: false, message: 'User not found' };
     const user = rows[0];
     const hashed = user.password;
@@ -133,7 +134,8 @@ ipcMain.handle('auth-login-ex', async (_e, payload) => {
   try {
     const p = payload || {};
     const identifier = (p.identifier || '').trim();
-    const phone = (p.phone || '').trim();
+  // accept both legacy 'phone' and DB column 'phone_number'
+  const phone = (p.phone_number || p.phone || '').trim();
     const fullname = (p.fullname || '').trim();
     const store = (p.store || '').trim();
     const role = (p.role || '').trim();
@@ -142,6 +144,25 @@ ipcMain.handle('auth-login-ex', async (_e, payload) => {
 
     const clauses = [];
     const params = [];
+
+    // If method explicitly 'phone', try an exact phone_number match first (faster and avoids mixing with username/email)
+    if (p.method === 'phone' && phone) {
+      try {
+        const phoneSql = 'SELECT user_id, username, email, password FROM users WHERE phone_number = ? LIMIT 1';
+        console.log('[auth-login-ex-phone-first] sql:', phoneSql, 'params:', [phone]);
+        const [pr] = await pool.execute(phoneSql, [phone]);
+        if (pr && pr.length) {
+          const user = pr[0];
+          const match = await bcrypt.compare(password, user.password);
+          if (!match) return { ok: false, message: 'Invalid credentials' };
+          await pool.execute('UPDATE users SET last_login = NOW() WHERE user_id = ?', [user.user_id]);
+          return { ok: true, user: { user_id: user.user_id, username: user.username, email: user.email } };
+        }
+        // if not found, fall through to existing behavior (which may use LIKE); optionally we could return not found
+      } catch (err) {
+        return { ok: false, message: err.message };
+      }
+    }
 
     if (identifier) {
       if (options.strict) {
@@ -153,8 +174,8 @@ ipcMain.handle('auth-login-ex', async (_e, payload) => {
       }
     }
     if (phone) {
-      if (options.strict) { clauses.push('phone = ?'); params.push(phone); }
-      else { clauses.push('phone LIKE ?'); params.push('%' + phone + '%'); }
+      if (options.strict) { clauses.push('phone_number = ?'); params.push(phone); }
+      else { clauses.push('phone_number LIKE ?'); params.push('%' + phone + '%'); }
     }
     if (fullname) {
       if (options.strict) { clauses.push('fullname = ?'); params.push(fullname); }
@@ -167,7 +188,8 @@ ipcMain.handle('auth-login-ex', async (_e, payload) => {
     let sql = 'SELECT user_id, username, email, password FROM users';
     if (clauses.length) {
       sql += ' WHERE ' + clauses.join(' AND ');
-    } else if (identifier) {
+    } else if (identifier && p.method !== 'phone') {
+      // only fall back to username/email search when method is not explicitly 'phone'
       sql += ' WHERE username = ? OR email = ?';
       params.push(identifier, identifier);
     }
@@ -175,7 +197,8 @@ ipcMain.handle('auth-login-ex', async (_e, payload) => {
     if (options.orderByLastLogin) sql += ' ORDER BY last_login DESC';
     sql += ' LIMIT 1';
 
-    const [rows] = await pool.execute(sql, params);
+  console.log('[auth-login-ex] sql:', sql, 'params:', params, 'payload:', p);
+  const [rows] = await pool.execute(sql, params);
     if (!rows || rows.length === 0) return { ok: false, message: 'User not found', details: 'No user matched query' };
     const user = rows[0];
     const match = await bcrypt.compare(password, user.password);

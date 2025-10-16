@@ -461,49 +461,23 @@
         <div class="muted">Sign in with username, email or phone. Provide additional info to query the DB more precisely.</div>
 
         <div class="form-row">
-          <label class="muted">Tên người dùng hoặc Email</label>
-          <input id="login-identifier" class="input" type="text" placeholder="Nhập tên người dùng hoặc email" />
+          <label class="muted">Đăng nhập bằng</label>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+            <label style="display:flex;gap:8px;align-items:center"><input name="login-method" type="radio" value="username" checked> Username</label>
+            <label style="display:flex;gap:8px;align-items:center"><input name="login-method" type="radio" value="email"> Email</label>
+            <label style="display:flex;gap:8px;align-items:center"><input name="login-method" type="radio" value="phone"> Phone</label>
+          </div>
         </div>
 
-        <div class="form-row">
-          <label class="muted">Số điện thoại (tùy chọn)</label>
-          <input id="login-phone" class="input" type="tel" placeholder="Nhập số điện thoại" />
+        <div class="form-row" style="margin-top:10px">
+          <label class="muted" id="login-identifier-label">Tên người dùng</label>
+          <input id="login-identifier" class="input" type="text" placeholder="Nhập tên người dùng" />
         </div>
 
         <div class="form-row">
           <label class="muted">Mật khẩu</label>
           <input id="login-password" class="input" type="password" placeholder="Nhập mật khẩu của bạn" />
         </div>
-
-        <div class="form-row">
-          <label class="muted">Họ và tên (tùy chọn)</label>
-          <input id="login-fullname" class="input" type="text" placeholder="Tên đầy đủ (nếu cần cho truy vấn)" />
-        </div>
-
-        <div class="form-row" style="display:flex;gap:12px;align-items:center;margin-top:10px">
-          <div style="flex:1">
-            <label class="muted">Mã cửa hàng / Chi nhánh (optional)</label>
-            <input id="login-store" class="input" type="text" placeholder="Mã cửa hàng hoặc chi nhánh" />
-          </div>
-          <div style="width:140px">
-            <label class="muted">Vai trò</label>
-            <select id="login-role" class="input">
-              <option value="">(any)</option>
-              <option value="seller">Seller</option>
-              <option value="manager">Manager</option>
-              <option value="admin">Admin</option>
-            </select>
-          </div>
-        </div>
-
-        <details style="margin-top:12px" class="muted">
-          <summary style="cursor: pointer;">Advanced query options</summary>
-          <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-            <label style="display:flex;gap:8px;align-items:center"><input id="opt-strict" type="checkbox"> Strict match</label>
-            <label style="display:flex;gap:8px;align-items:center"><input id="opt-include-disabled" type="checkbox"> Include disabled users</label>
-            <label style="display:flex;gap:8px;align-items:center"><input id="opt-last-login" type="checkbox"> Order by last_login</label>
-          </div>
-        </details>
 
         <div class="form-row" style="display:flex;gap:12px;margin-top:14px;align-items:center">
           <button class="btn cta" id="login-btn">Sign in</button>
