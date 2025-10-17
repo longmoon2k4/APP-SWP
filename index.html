@@ -450,6 +450,15 @@
       <div id="session-card" class="card glass" style="width:520px;display:none;position:relative;text-align:center">
         <h3 id="session-title">Đã đăng nhập</h3>
         <div id="session-user" class="muted">User</div>
+        <div id="license-area" style="margin-top:14px;display:flex;flex-direction:column;align-items:center;gap:8px">
+          <label class="muted">Nhập key của bạn</label>
+          <input id="license-input" class="input" type="text" placeholder="Nhập key tại đây..." style="max-width:360px;text-align:center" />
+          <div style="display:flex;gap:8px">
+            <button id="check-key-btn" class="btn">Kiểm tra key</button>
+            <button id="clear-key-btn" class="btn secondary">Xóa</button>
+          </div>
+          <div id="license-status" class="muted" style="margin-top:8px"></div>
+        </div>
         <div style="margin-top:18px;display:flex;gap:12px;justify-content:center;align-items:center">
           <button id="btn-back" class="btn secondary">Quay lại phần chọn</button>
           <button id="btn-logout" class="btn">Đăng xuất</button>

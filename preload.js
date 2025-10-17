@@ -6,5 +6,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   authLogin: (user, pass) => ipcRenderer.invoke('auth-login', user, pass),
   // extended login: accepts a payload { identifier, phone, fullname, store, role, password, options }
   authLoginEx: (payload) => ipcRenderer.invoke('auth-login-ex', payload),
+  checkKey: (payload) => ipcRenderer.invoke('check-key', payload),
   openExternal: (url) => ipcRenderer.invoke('open-external', url)
 });

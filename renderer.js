@@ -269,6 +269,49 @@ btnLogout?.addEventListener('click', ()=>{
   loginStatus.textContent = 'Not logged in';
 });
 
+// License/key handling inside session-card
+const checkKeyBtn = document.getElementById('check-key-btn');
+const clearKeyBtn = document.getElementById('clear-key-btn');
+const licenseInput = document.getElementById('license-input');
+const licenseStatus = document.getElementById('license-status');
+
+function showLicenseStatus(msg, isError=false){
+  if (!licenseStatus) return;
+  licenseStatus.textContent = msg;
+  licenseStatus.style.color = isError ? '#fca5a5' : 'var(--accent)';
+}
+
+checkKeyBtn?.addEventListener('click', async ()=>{
+  const key = licenseInput?.value?.trim();
+  if (!key) { showLicenseStatus('Vui lòng nhập key', true); return; }
+  // build payload: we need user_id from current session -- renderer currently only stores username in session-user
+  // best-effort: try to read username text and query server for user_id by username/email
+  showLicenseStatus('Đang kiểm tra key...');
+  try {
+    // ask main to resolve current user based on session UI (session-user shows username)
+    const username = document.getElementById('session-user')?.textContent || '';
+    // try to resolve user_id by username or email
+    const users = await window.electronAPI.dbQuery('SELECT user_id FROM users WHERE username = ? OR email = ? LIMIT 1', [username, username]);
+    const userId = (users && users[0] && users[0].user_id) ? users[0].user_id : null;
+    const deviceIdentifier = navigator.userAgent + '|' + (window.location.href || 'desktop');
+    const payload = { user_id: userId, key, device_identifier: deviceIdentifier };
+    const res = await window.electronAPI.checkKey(payload);
+    if (res?.ok) {
+      showLicenseStatus('Key hợp lệ — mở ứng dụng...', false);
+      // if product download URL provided, open it
+      if (res.product && res.product.download_url) {
+        await window.electronAPI.openExternal(res.product.download_url);
+      }
+    } else {
+      showLicenseStatus('Key không hợp lệ: ' + (res?.message || 'unknown'), true);
+    }
+  } catch (err) {
+    showLicenseStatus('Lỗi khi kiểm tra key: ' + err.message, true);
+  }
+});
+
+clearKeyBtn?.addEventListener('click', ()=>{ if (licenseInput) licenseInput.value = ''; showLicenseStatus(''); });
+
 // --- Starfield background ---
 (() => {
   const canvas = document.getElementById('bg-canvas');

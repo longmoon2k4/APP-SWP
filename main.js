@@ -107,6 +107,64 @@ ipcMain.handle('open-external', async (_e, url) => {
   }
 });
 
+// Check license/key handler
+ipcMain.handle('check-key', async (_e, payload) => {
+  if (!pool) throw new Error('DB pool not initialized');
+  try {
+    const p = payload || {};
+    const key = (p.key || '').trim();
+    const userId = p.user_id || null; // might be null if client didn't resolve
+    const deviceIdentifier = p.device_identifier || null;
+
+    if (!key) return { ok: false, message: 'No key provided' };
+
+  // parse PRD or PRN formats. Accept date as YYYY-MM-DD or YYYYMMDD
+  // examples: PRN123-2025-12-31-ABCDE  or PRD1-20251029-FBD808634891
+  const m = key.match(/^(?:PRN|PRD)(\d+)-(?:(\d{4}-\d{2}-\d{2})|(\d{8}))-(.+)$/i);
+  if (!m) return { ok: false, message: 'Key format invalid' };
+  const productId = parseInt(m[1], 10);
+  const expiry = m[2] || m[3];
+
+    // lookup license by exact license_key (unique)
+    const [rows] = await pool.execute('SELECT license_id, order_item_id, user_id, license_key, is_active, activation_date, last_used_date, device_identifier FROM product_licenses WHERE license_key = ? LIMIT 1', [key]);
+    if (!rows || rows.length === 0) return { ok: false, message: 'Key not found' };
+    const lic = rows[0];
+
+    // check ownership if userId provided
+    if (userId && lic.user_id !== userId) return { ok: false, message: 'Key does not belong to current user' };
+
+    // check active flag
+    if (!lic.is_active) return { ok: false, message: 'Key is inactive' };
+
+    // check expiry: compare expiry date from key string
+    const expDate = new Date(expiry + 'T23:59:59Z');
+    const now = new Date();
+    if (expDate.getTime() < now.getTime()) return { ok: false, message: 'Key expired' };
+
+    // update device_identifier and last_used_date
+    try {
+      await pool.execute('UPDATE product_licenses SET device_identifier = ?, last_used_date = NOW() WHERE license_id = ?', [deviceIdentifier, lic.license_id]);
+    } catch (err) {
+      console.error('Failed to update device_identifier', err);
+    }
+
+    // fetch product info for the order_item
+    const [items] = await pool.execute('SELECT product_id FROM order_items WHERE order_item_id = ? LIMIT 1', [lic.order_item_id]);
+    const productIdFromItem = (items && items[0] && items[0].product_id) ? items[0].product_id : null;
+
+    // fetch product details
+    let product = null;
+    if (productIdFromItem) {
+      const [prows] = await pool.execute('SELECT product_id, name, download_url FROM products WHERE product_id = ? LIMIT 1', [productIdFromItem]);
+      if (prows && prows[0]) product = prows[0];
+    }
+
+    return { ok: true, message: 'Key valid', license: { license_id: lic.license_id }, product };
+  } catch (err) {
+    return { ok: false, message: err.message };
+  }
+});
+
 // Authentication: verify user by username or email, then update last_login
 ipcMain.handle('auth-login', async (_e, identifier, password) => {
   if (!pool) throw new Error('DB pool not initialized');
