@@ -1,29 +1,25 @@
-# Simple App SWP
+# Bán Hàng Rong
 
-1. Cài đặt
+Ứng dụng quản lý bán hàng, kiểm tra key sản phẩm và tự động tải, chạy phần mềm liên quan.
 
-- Cần phải có node.js và python trước
-- Anh em clone về thì nhớ tạo file .env với config mình đưa trước trong Zalo
-- Mở terminal lên rồi chạy lệnh "npm install"
+## Tải bản phát hành mới nhất
 
-2. Hoạt động
+👉 [Download tại Github Releases](https://github.com/longmoon2k4/APP-SWP/releases/latest)
 
-- Sửa logic code trong main.js
-- Thêm cách package cần thiết
-- Chạy lệnh "npm start" để test hoạt động của app
+## Hướng dẫn cài đặt
+1. Tải file `.exe` từ link trên về máy.
+2. Chạy file để cài đặt hoặc sử dụng bản portable.
+3. Đăng nhập bằng username/email/số điện thoại.
+4. Nhập key sản phẩm để kích hoạt và tải phần mềm liên quan.
 
-3. Build ứng dụng
+## Tính năng
+- Đăng nhập đa phương thức (username/email/phone)
+- Kiểm tra và kích hoạt key sản phẩm
+- Tải và chạy ứng dụng liên quan qua key
+- Giao diện hiện đại, hỗ trợ dark/light theme
 
-- Chạy lệnh "npm run dist" để build exe 
-- Trong tệp [dist] có bản cài và bản exe. Có thể đưa cho khách hàng bản cài hoặc đưa trực tiếp exe ( KHUYẾN NGHỊ BẢN CÀI MÁY KHÁCH)
+## License
+MIT License
 
-4. Test
-
-- Login trong database ở web PHP đã đưa cùng env trong Zalo
-- Sử dụng tài khoản smiledev_wap và mật khẩu [-----------] 
-- Kiểm tra kết nối rồi test login ( Mật khẩu bị mã hóa nên cần dùng công cụ dịch ngược để lấy mật khẩu )
-
-5. Tài khoản test app 
-
-- Username: seller
-- Password: admin1234
+---
+Nếu có vấn đề hoặc cần hỗ trợ, hãy liên hệ qua Github Issues hoặc email của tác giả.
