@@ -44,7 +44,7 @@ function createWindow () {
   });
 
   win.loadFile('index.html');
-  win.setTitle('Bán Hàng Rong - System Demo');
+  win.setTitle('Bán Hàng Rong');
   // ensure application menu is removed and per-window menu bar hidden
   try {
     Menu.setApplicationMenu(null);
@@ -61,6 +61,8 @@ app.whenReady().then(() => {
   createWindow();
 });
 
+
+//Connect to database and create pool
 async function createPool() {
   if (pool) return pool;
   const cfg = {
