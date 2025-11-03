@@ -127,7 +127,9 @@ ipcMain.handle('check-key', async (_e, payload) => {
   const m = key.match(/^(?:PRN|PRD)(\d+)-(?:(\d{4}-\d{2}-\d{2})|(\d{8}))-(.+)$/i);
   if (!m) return { ok: false, message: 'Key format invalid' };
   const productId = parseInt(m[1], 10);
-  const expiry = m[2] || m[3];
+  const expiryRaw = m[2] || m[3];
+  // normalize expiry to YYYY-MM-DD for response and for strict parsing
+  const expiryNormalized = m[2] ? m[2] : (m[3] ? (m[3].slice(0,4) + '-' + m[3].slice(4,6) + '-' + m[3].slice(6,8)) : null);
 
     // lookup license by exact license_key (unique)
     const [rows] = await pool.execute('SELECT license_id, order_item_id, user_id, license_key, is_active, activation_date, last_used_date, device_identifier FROM product_licenses WHERE license_key = ? LIMIT 1', [key]);
@@ -140,8 +142,13 @@ ipcMain.handle('check-key', async (_e, payload) => {
     // check active flag
     if (!lic.is_active) return { ok: false, message: 'Key is inactive' };
 
-    // check expiry: compare expiry date from key string
-    const expDate = new Date(expiry + 'T23:59:59Z');
+    // check expiry strictly using normalized date in UTC (end of day)
+    if (!expiryNormalized || !/^\d{4}-\d{2}-\d{2}$/.test(expiryNormalized)) {
+      return { ok: false, message: 'Key expiry invalid' };
+    }
+    const [ey, em, ed] = expiryNormalized.split('-').map(n => parseInt(n, 10));
+    const expDate = new Date(Date.UTC(ey, em - 1, ed, 23, 59, 59));
+    if (isNaN(expDate.getTime())) return { ok: false, message: 'Key expiry invalid' };
     const now = new Date();
     if (expDate.getTime() < now.getTime()) return { ok: false, message: 'Key expired' };
 
@@ -185,7 +192,7 @@ ipcMain.handle('check-key', async (_e, payload) => {
       console.error('Failed to insert license_usage_logs', err);
     }
 
-    return { ok: true, message: 'Key valid', license: { license_id: lic.license_id }, product };
+  return { ok: true, message: 'Key valid', license: { license_id: lic.license_id }, product, expiry: expiryNormalized };
   } catch (err) {
     return { ok: false, message: err.message };
   }

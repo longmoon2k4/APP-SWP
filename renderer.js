@@ -330,11 +330,40 @@ checkKeyBtn?.addEventListener('click', async ()=>{
     const payload = { user_id: userId, key, device_identifier: deviceIdentifier };
     const res = await window.electronAPI.checkKey(payload);
     if (res?.ok) {
-      showLicenseStatus('Key hợp lệ — mở ứng dụng...', false);
-      // if product download URL provided, open it
-      if (res.product && res.product.download_url) {
-        await window.electronAPI.openExternal(res.product.download_url);
+      // Populate and show license detail card
+      const ldCard = document.getElementById('license-detail-card');
+      const sc = document.getElementById('session-card');
+      const prodNameEl = document.getElementById('ld-product-name');
+      const userEl = document.getElementById('ld-username');
+      const expEl = document.getElementById('ld-expiry');
+      const dlLink = document.getElementById('ld-download-link');
+      const openBtn = document.getElementById('btn-license-open');
+      const backBtn = document.getElementById('btn-license-back');
+
+      const productName = (res.product && res.product.name) ? res.product.name : 'Không xác định';
+      const usernameText = document.getElementById('session-user')?.textContent || '—';
+      const expiryText = res.expiry || '—';
+      const downloadUrl = (res.product && res.product.download_url) ? res.product.download_url : '';
+
+      if (prodNameEl) prodNameEl.textContent = productName;
+      if (userEl) userEl.textContent = usernameText;
+      if (expEl) expEl.textContent = expiryText;
+      if (dlLink) {
+        dlLink.textContent = downloadUrl ? 'download' : 'n/a';
+        dlLink.href = downloadUrl || '#';
       }
+      if (openBtn) {
+        openBtn.onclick = async () => { if (downloadUrl) await window.electronAPI.openExternal(downloadUrl); };
+      }
+      if (backBtn) {
+        backBtn.onclick = () => {
+          if (ldCard) ldCard.style.display = 'none';
+          if (sc) sc.style.display = 'block';
+        };
+      }
+      if (sc) sc.style.display = 'none';
+      if (ldCard) ldCard.style.display = 'block';
+      showLicenseStatus('Key hợp lệ — thông tin giấy phép đã hiển thị.', false);
     } else {
       showLicenseStatus('Key không hợp lệ: ' + (res?.message || 'unknown'), true);
     }

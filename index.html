@@ -465,6 +465,26 @@
         </div>
       </div>
 
+      <!-- License detail card shown after key is validated -->
+      <div id="license-detail-card" class="card glass" style="width:560px;display:none;position:relative;text-align:left">
+        <h3>Thông tin giấy phép</h3>
+        <div class="muted" style="margin-bottom:10px">Key của bạn đã được xác thực thành công.</div>
+        <div style="display:grid;grid-template-columns:160px 1fr;gap:8px 12px;align-items:center">
+          <div class="muted">Sản phẩm</div>
+          <div id="ld-product-name">—</div>
+          <div class="muted">Người dùng</div>
+          <div id="ld-username">—</div>
+          <div class="muted">Ngày hết hạn</div>
+          <div id="ld-expiry">—</div>
+          <div class="muted">Tải về</div>
+          <div><a id="ld-download-link" href="#" target="_blank">download</a></div>
+        </div>
+        <div style="margin-top:16px;display:flex;gap:12px;justify-content:flex-end">
+          <button id="btn-license-back" class="btn secondary">Quay lại</button>
+          <button id="btn-license-open" class="btn">Mở link tải</button>
+        </div>
+      </div>
+
       <div id="login-card" class="card glass" style="width:520px;display:none;position:relative">
         <h3>Sign in</h3>
         <div class="muted">Sign in with username, email or phone. Provide additional info to query the DB more precisely.</div>
