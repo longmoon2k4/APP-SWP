@@ -3,6 +3,8 @@ const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 const mysql = require('mysql2/promise');
 const bcrypt = require('bcryptjs');
+const fs = require('fs').promises;
+const crypto = require('crypto');
 
 let pool;
 
@@ -143,12 +145,18 @@ ipcMain.handle('check-key', async (_e, payload) => {
     const now = new Date();
     if (expDate.getTime() < now.getTime()) return { ok: false, message: 'Key expired' };
 
-    // update device_identifier and last_used_date
+    // update device_identifier, last_used_date and set activation_date on first successful use
+    // activation_date will only be set to NOW() if it is currently NULL
     try {
-      await pool.execute('UPDATE product_licenses SET device_identifier = ?, last_used_date = NOW() WHERE license_id = ?', [deviceIdentifier, lic.license_id]);
+      await pool.execute(
+        'UPDATE product_licenses SET device_identifier = ?, last_used_date = NOW(), activation_date = IFNULL(activation_date, NOW()) WHERE license_id = ?',
+        [deviceIdentifier, lic.license_id]
+      );
     } catch (err) {
-      console.error('Failed to update device_identifier', err);
+      console.error('Failed to update device_identifier/activation_date', err);
     }
+
+    // NOTE: license usage log will be inserted after product info is resolved below
 
     // fetch product info for the order_item
     const [items] = await pool.execute('SELECT product_id FROM order_items WHERE order_item_id = ? LIMIT 1', [lic.order_item_id]);
@@ -159,6 +167,22 @@ ipcMain.handle('check-key', async (_e, payload) => {
     if (productIdFromItem) {
       const [prows] = await pool.execute('SELECT product_id, name, download_url FROM products WHERE product_id = ? LIMIT 1', [productIdFromItem]);
       if (prows && prows[0]) product = prows[0];
+    }
+
+    // write a usage log into license_usage_logs for auditing
+    // action = 'activate' if activation_date was previously NULL, otherwise 'use'
+    try {
+      const action = lic.activation_date ? 'use' : 'activate';
+      const metaObj = { productIdFromItem };
+      if (product && product.name) metaObj.productName = product.name;
+      const meta = JSON.stringify(metaObj);
+      await pool.execute(
+        'INSERT INTO license_usage_logs (license_id, event_time, action, user_id, ip, device, meta) VALUES (?, NOW(), ?, ?, ?, ?, ?)',
+        [lic.license_id, action, lic.user_id || null, null, deviceIdentifier, meta]
+      );
+    } catch (err) {
+      // log but don't fail the key check
+      console.error('Failed to insert license_usage_logs', err);
     }
 
     return { ok: true, message: 'Key valid', license: { license_id: lic.license_id }, product };
@@ -276,4 +300,63 @@ app.on('window-all-closed', () => {
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow();
+});
+
+// Provide a stable, persisted machine id for the renderer.
+// The id is stored in the app userData folder so it survives restarts and updates.
+ipcMain.handle('get-machine-id', async () => {
+  try {
+    const file = path.join(app.getPath('userData'), 'machine_id');
+    try {
+      const existing = await fs.readFile(file, 'utf8');
+      if (existing) return existing.trim();
+    } catch (readErr) {
+      // file not found or unreadable - we'll create one
+    }
+    const id = (crypto && typeof crypto.randomUUID === 'function') ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2));
+    try {
+      await fs.mkdir(path.dirname(file), { recursive: true });
+      await fs.writeFile(file, id, 'utf8');
+    } catch (writeErr) {
+      console.error('Failed to persist machine id', writeErr);
+    }
+    return id;
+  } catch (err) {
+    console.error('get-machine-id error', err);
+    return null;
+  }
+});
+
+// Provide basic system information (non-sensitive) to renderer on demand.
+// Returns hostname, platform, arch, release, cpu model/count, total/freemem, MACs and IPv4 addresses (non-internal).
+ipcMain.handle('get-system-info', async () => {
+  try {
+    const os = require('os');
+    const nets = os.networkInterfaces() || {};
+    const macs = [];
+    const ipv4s = [];
+    for (const name of Object.keys(nets)) {
+      for (const ni of nets[name]) {
+        if (!ni.internal) {
+          if (ni.mac) macs.push(ni.mac);
+          if (ni.family === 'IPv4' && ni.address) ipv4s.push(ni.address);
+        }
+      }
+    }
+    const cpus = os.cpus() || [];
+    return {
+      hostname: os.hostname(),
+      platform: os.platform(),
+      arch: os.arch(),
+      release: os.release(),
+      cpu: { model: cpus[0] ? cpus[0].model : null, count: cpus.length },
+      totalmem: os.totalmem(),
+      freemem: os.freemem(),
+      macs: Array.from(new Set(macs)).filter(m => m && m !== '00:00:00:00:00:00'),
+      ipv4s: Array.from(new Set(ipv4s))
+    };
+  } catch (err) {
+    console.error('get-system-info error', err);
+    return null;
+  }
 });

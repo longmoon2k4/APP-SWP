@@ -13,22 +13,26 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "bcryptjs": "^2.4.3",
     "dotenv": "^16.0.0",
     "mysql2": "^3.3.0",
-    "bcryptjs": "^2.4.3"
+    "node-machine-id": "^1.1.12"
   },
   "devDependencies": {
     "electron": "^26.0.0",
     "electron-builder": "^24.0.0"
   },
   "build": {
-  "appId": "com.banhangrong.app",
-  "productName": "Bán Hàng Rong",
+    "appId": "com.banhangrong.app",
+    "productName": "Bán Hàng Rong",
     "directories": {
       "output": "dist"
     },
     "win": {
-      "target": ["nsis", "portable"],
+      "target": [
+        "nsis",
+        "portable"
+      ],
       "icon": "img/white.png"
     },
     "nsis": {

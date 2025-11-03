@@ -293,7 +293,40 @@ checkKeyBtn?.addEventListener('click', async ()=>{
     // try to resolve user_id by username or email
     const users = await window.electronAPI.dbQuery('SELECT user_id FROM users WHERE username = ? OR email = ? LIMIT 1', [username, username]);
     const userId = (users && users[0] && users[0].user_id) ? users[0].user_id : null;
-    const deviceIdentifier = navigator.userAgent + '|' + (window.location.href || 'desktop');
+    // try to get a stable machine id from preload; fall back to userAgent if not available
+    let machineId = null;
+    try {
+      if (window.electronAPI && typeof window.electronAPI.getMachineId === 'function') {
+        machineId = await window.electronAPI.getMachineId();
+      }
+    } catch (e) {
+      // ignore and use fallback below
+    }
+
+    // try to get system info and include it in device_identifier
+    let sys = null;
+    try {
+      if (window.electronAPI && typeof window.electronAPI.getSystemInfo === 'function') {
+        sys = await window.electronAPI.getSystemInfo();
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    // build sanitized system summary (avoid pipes in values)
+    let sysPart = 'unknown-system';
+    try {
+      if (sys) {
+        const memMB = Math.round((sys.totalmem || 0) / 1024 / 1024);
+        const cpuModel = (sys.cpu && sys.cpu.model) ? sys.cpu.model.replace(/\|/g, '/') : 'unknown-cpu';
+        const hostname = (sys.hostname || 'unknown-host').replace(/\|/g, '/');
+        sysPart = `host=${hostname};plat=${sys.platform||''};cpu=${cpuModel};cores=${sys.cpu?.count||0};mem=${memMB}MB`;
+      }
+    } catch (e) {
+      sysPart = 'unknown-system';
+    }
+
+    const deviceIdentifier = `${machineId || navigator.userAgent}|${sysPart}|${window.location.href || 'desktop'}`;
     const payload = { user_id: userId, key, device_identifier: deviceIdentifier };
     const res = await window.electronAPI.checkKey(payload);
     if (res?.ok) {
