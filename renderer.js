@@ -363,7 +363,94 @@ checkKeyBtn?.addEventListener('click', async ()=>{
       }
       if (sc) sc.style.display = 'none';
       if (ldCard) ldCard.style.display = 'block';
-      showLicenseStatus('Key hợp lệ — thông tin giấy phép đã hiển thị.', false);
+      showLicenseStatus('Key hợp lệ — đang kiểm tra cài đặt ứng dụng...', false);
+
+      // Auto install and/or open the app based on product info, with progress bar
+      try {
+        if (res.product) {
+          const reqId = Date.now().toString(36) + Math.random().toString(36).slice(2);
+          // setup progress listeners
+          const progressWrap = document.getElementById('ld-progress');
+          const progressBar = document.getElementById('ld-progress-bar');
+          const progressLabel = document.getElementById('ld-progress-label');
+          const cancelBtn = document.getElementById('ld-cancel');
+          const openFolderLink = document.getElementById('ld-open-folder');
+          if (progressWrap) progressWrap.style.display = 'block';
+          let downloadFilePath = '';
+          let off1, off2, off3;
+          if (window.electronAPI.onProductDownloadProgress) {
+            off1 = window.electronAPI.onProductDownloadProgress((data)=>{
+              if (!data || data.requestId !== reqId) return;
+              downloadFilePath = data.file || downloadFilePath;
+              if (progressBar && typeof data.percent === 'number') progressBar.style.width = Math.max(0, Math.min(100, data.percent)) + '%';
+              if (progressLabel) {
+                // speed and ETA
+                let speedText = '';
+                let etaText = '';
+                if (typeof data.speedBps === 'number') {
+                  const kbps = Math.round(data.speedBps / 1024);
+                  speedText = `, ${kbps} KB/s`;
+                }
+                if (typeof data.etaSec === 'number') {
+                  const m = Math.floor(data.etaSec / 60);
+                  const s = data.etaSec % 60;
+                  etaText = `, còn ~${m}:${String(s).padStart(2,'0')}`;
+                }
+                if (data.total && typeof data.percent === 'number') {
+                  progressLabel.textContent = `Đang tải... ${data.percent}%${speedText}${etaText}`;
+                } else {
+                  progressLabel.textContent = `Đang tải... ${Math.round((data.downloaded||0)/1024)} KB${speedText}${etaText}`;
+                }
+              }
+            });
+          }
+          if (window.electronAPI.onProductDownloadComplete) {
+            off2 = window.electronAPI.onProductDownloadComplete((data)=>{
+              if (!data || data.requestId !== reqId) return;
+              if (progressBar) progressBar.style.width = '100%';
+              if (progressLabel) progressLabel.textContent = 'Tải xong. Đang chạy cài đặt...';
+              if (cancelBtn) cancelBtn.disabled = true;
+              if (openFolderLink) openFolderLink.style.display = 'none';
+            });
+          }
+          if (window.electronAPI.onProductDownloadError) {
+            off3 = window.electronAPI.onProductDownloadError((data)=>{
+              if (!data || data.requestId !== reqId) return;
+              if (progressLabel) progressLabel.textContent = 'Lỗi tải: ' + (data.message || 'unknown');
+              if (cancelBtn) cancelBtn.disabled = true;
+              if (openFolderLink) {
+                openFolderLink.style.display = 'inline-block';
+                openFolderLink.onclick = async (e)=>{ e.preventDefault(); if (downloadFilePath) await window.electronAPI.revealFile(downloadFilePath); };
+              }
+            });
+          }
+          if (cancelBtn) {
+            cancelBtn.disabled = false;
+            cancelBtn.onclick = async ()=>{
+              try {
+                cancelBtn.disabled = true;
+                await window.electronAPI.cancelProductDownload(reqId);
+                if (progressLabel) progressLabel.textContent = 'Đã hủy tải';
+              } catch (e) {
+                if (progressLabel) progressLabel.textContent = 'Không thể hủy: ' + e.message;
+              }
+            };
+          }
+
+          const outcome = await window.electronAPI.openOrInstallProduct({ product: res.product, requestId: reqId });
+          if (outcome?.ok) {
+            showLicenseStatus(outcome.message || 'Đã mở/trình cài đặt ứng dụng', false);
+          } else {
+            showLicenseStatus('Không thể cài đặt/mở ứng dụng: ' + (outcome?.message || 'unknown'), true);
+          }
+          // cleanup listeners
+          try { off1 && off1(); off2 && off2(); off3 && off3(); } catch {}
+        } else {
+          showLicenseStatus('Thiếu thông tin sản phẩm để cài đặt/mở ứng dụng', true);
+        }
+      } catch (e) {
+        showLicenseStatus('Lỗi khi cài đặt/mở ứng dụng: ' + e.message, true);
+      }
     } else {
       showLicenseStatus('Key không hợp lệ: ' + (res?.message || 'unknown'), true);
     }

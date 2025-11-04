@@ -18,6 +18,10 @@
 - Tải và chạy ứng dụng liên quan qua key
 - Giao diện hiện đại, hỗ trợ dark/light theme
 
+## Ghi chú
+- Kích hoạt lần đầu: Khi key được sử dụng thành công lần đầu, cột `activation_date` sẽ được đặt bằng thời gian hiện tại nếu đang để trống. Những lần dùng sau sẽ không thay đổi giá trị này; chỉ cập nhật `last_used_date`.
+- Cách mở ứng dụng đơn giản: Nếu ứng dụng đã có sẵn trong máy, khi được hỏi bạn có thể chọn trực tiếp file `.exe` của ứng dụng để mở ngay. Ứng dụng sẽ ghi nhớ đường dẫn này cho những lần mở sau. Nếu chưa cài, chọn "Tải và cài đặt" để tải về từ Internet rồi cài đặt.
+
 ## License
 MIT License
 

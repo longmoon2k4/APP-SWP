@@ -479,6 +479,18 @@
           <div class="muted">Tải về</div>
           <div><a id="ld-download-link" href="#" target="_blank">download</a></div>
         </div>
+        <!-- Progress bar for download/install -->
+        <div id="ld-progress" style="margin-top:14px;display:none">
+          <div class="muted" id="ld-progress-label">Đang tải...</div>
+          <div style="height:10px;background:rgba(255,255,255,0.1);border-radius:6px;overflow:hidden;margin-top:6px">
+            <div id="ld-progress-bar" style="height:100%;width:0%;background:linear-gradient(90deg, var(--accent), #60a5fa);
+            transition: width 120ms ease"></div>
+          </div>
+          <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+            <button id="ld-cancel" class="btn secondary">Hủy tải</button>
+            <a id="ld-open-folder" href="#" style="display:none">Mở thư mục tải</a>
+          </div>
+        </div>
         <div style="margin-top:16px;display:flex;gap:12px;justify-content:flex-end">
           <button id="btn-license-back" class="btn secondary">Quay lại</button>
           <button id="btn-license-open" class="btn">Mở link tải</button>

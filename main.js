@@ -1,10 +1,14 @@
-const { app, BrowserWindow, ipcMain, Menu, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, shell, dialog } = require('electron');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 const mysql = require('mysql2/promise');
 const bcrypt = require('bcryptjs');
 const fs = require('fs').promises;
 const crypto = require('crypto');
+const cp = require('child_process');
+const os = require('os');
+// Track active downloads by requestId for cancel support
+const downloadControllers = new Map();
 
 let pool;
 
@@ -366,4 +370,273 @@ ipcMain.handle('get-system-info', async () => {
     console.error('get-system-info error', err);
     return null;
   }
+});
+
+// --- Install/launch helpers ---
+async function pathExists(p){ try { await fs.access(p); return true; } catch { return false; } }
+
+function normalizeName(s){ return (s || '').toString().toLowerCase().replace(/[^a-z0-9]/g,''); }
+
+async function findInstalledExe(productName, exeHint){
+  // Quick heuristic: search common install locations for an .exe whose normalized name contains product name or matches exeHint
+  const candidates = new Set();
+  if (exeHint && exeHint.endsWith('.exe')) candidates.add(exeHint);
+  const pf = process.env['ProgramFiles'];
+  const pf86 = process.env['ProgramFiles(x86)'];
+  const localPrograms = path.join(os.homedir(), 'AppData', 'Local', 'Programs');
+  const startMenu = path.join(process.env['ProgramData'] || 'C://ProgramData', 'Microsoft', 'Windows', 'Start Menu', 'Programs');
+  const roots = [pf, pf86, localPrograms, startMenu].filter(Boolean);
+  const targetNorm = normalizeName(productName);
+  const maxFiles = 8000;
+  const maxDepth = 3;
+  let scanned = 0;
+  async function walk(dir, depth){
+    if (depth > maxDepth) return null;
+    let entries;
+    try { entries = await fs.readdir(dir, { withFileTypes: true }); }
+    catch { return null; }
+    for (const ent of entries){
+      if (scanned > maxFiles) return null;
+      const full = path.join(dir, ent.name);
+      if (ent.isDirectory()){
+        // Skip some heavy folders
+        const name = ent.name.toLowerCase();
+        if (name.startsWith('windowsapps') || name === 'windows' || name === '$recycle.bin') continue;
+        const found = await walk(full, depth+1);
+        if (found) return found;
+      } else if (ent.isFile()){
+        scanned++;
+        const lower = ent.name.toLowerCase();
+        if (lower.endsWith('.exe')){
+          const norm = normalizeName(ent.name);
+          if ((exeHint && lower === exeHint.toLowerCase()) || (targetNorm && norm.includes(targetNorm))){
+            return full;
+          }
+        }
+      }
+    }
+    return null;
+  }
+  for (const r of roots){
+    const found = await walk(r, 0);
+    if (found) return found;
+  }
+  return null;
+}
+async function readJsonSafe(filePath, fallback){
+  try { const d = await fs.readFile(filePath, 'utf8'); return JSON.parse(d); } catch(e){ return fallback; }
+}
+async function writeJsonSafe(filePath, obj){
+  try { await fs.mkdir(path.dirname(filePath), { recursive: true }); await fs.writeFile(filePath, JSON.stringify(obj, null, 2), 'utf8'); } catch(e){ /* ignore */ }
+}
+function downloadFile(url, dest, onProgress, controller, requestId, wc){
+  return new Promise((resolve, reject) => {
+    try {
+      const u = new URL(url);
+      const mod = u.protocol === 'https:' ? require('https') : require('http');
+      const req = mod.get(u, (res) => {
+        if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          return resolve(downloadFile(res.headers.location, dest, onProgress, controller, requestId, wc));
+        }
+        if (res.statusCode !== 200) return reject(new Error('HTTP ' + res.statusCode));
+        const total = parseInt(res.headers['content-length'] || '0', 10) || 0;
+        let downloaded = 0;
+        if (typeof onProgress === 'function') onProgress({ stage: 'start', total });
+        res.on('data', (chunk) => {
+          downloaded += chunk.length;
+          if (typeof onProgress === 'function') onProgress({ stage: 'progress', downloaded, total, percent: total ? Math.min(100, Math.round(downloaded*100/total)) : null });
+        });
+        const file = require('fs').createWriteStream(dest);
+        if (controller) {
+          controller.cancel = () => {
+            try { req.destroy(new Error('cancelled')); } catch {}
+            try { file.destroy(new Error('cancelled')); } catch {}
+            try { require('fs').unlink(dest, ()=>{}); } catch {}
+            if (wc) wc.send('product-download-error', { requestId, stage: 'cancelled', productId: controller.productId, file: dest, message: 'Cancelled by user' });
+          };
+          downloadControllers.set(requestId, controller);
+        }
+        res.pipe(file);
+        file.on('finish', () => file.close(() => {
+          if (typeof onProgress === 'function') onProgress({ stage: 'complete', downloaded, total, percent: 100 });
+          if (controller) downloadControllers.delete(requestId);
+          resolve(dest);
+        }));
+        file.on('error', (err) => { if (controller) downloadControllers.delete(requestId); reject(err); });
+      });
+      req.on('error', (err) => {
+        if (typeof onProgress === 'function') onProgress({ stage: 'error', message: err.message });
+        if (controller) downloadControllers.delete(requestId);
+        reject(err);
+      });
+    } catch (err) { if (typeof onProgress === 'function') onProgress({ stage: 'error', message: err.message }); reject(err); }
+  });
+}
+
+// IPC: Ensure product is installed and launch it. If not installed, download installer and run it, then optionally prompt for exe path to save for next time.
+ipcMain.handle('open-or-install-product', async (_e, payload) => {
+  try {
+    const p = payload || {};
+    const product = p.product || {};
+    const productId = product.product_id || product.id || null;
+    const productName = (product.name || 'product').toString();
+    const downloadUrl = product.download_url || p.download_url || '';
+    const requestId = p.requestId || ((crypto && typeof crypto.randomUUID==='function') ? crypto.randomUUID() : (Date.now().toString(36)+Math.random().toString(36).slice(2)) );
+    const wc = _e?.sender;
+
+    if (!productId) return { ok: false, message: 'Missing product_id' };
+
+    const userDir = app.getPath('userData');
+    const mapFile = path.join(userDir, 'product_launchers.json');
+    const launcherMap = await readJsonSafe(mapFile, {});
+    let existingPath = launcherMap[productId];
+
+    if (existingPath && await pathExists(existingPath)) {
+      try {
+        cp.spawn(existingPath, [], { detached: true, stdio: 'ignore' }).unref();
+        return { ok: true, launched: true, message: 'Launched existing app', path: existingPath };
+      } catch (err) {
+        // fall through to re-install
+      }
+    }
+
+    // Simpler path: ask user if they want to chọn file .exe có sẵn hay tải từ Internet
+    try {
+      const choice = await dialog.showMessageBox({
+        type: 'question',
+        title: 'Mở ứng dụng',
+        message: `Bạn đã cài '${productName}' chưa?`,
+        detail: 'Chọn file .exe nếu ứng dụng đã có sẵn trong máy. Hoặc chọn tải và cài đặt từ Internet.',
+        buttons: ['Chọn file .exe', 'Tải và cài đặt', 'Hủy'],
+        defaultId: 0,
+        cancelId: 2,
+        noLink: true
+      });
+      if (choice.response === 0) {
+        // Pick existing exe
+        const pick = await dialog.showOpenDialog({
+          title: 'Chọn file .exe của ' + productName,
+          properties: ['openFile'],
+          filters: [{ name: 'Executable', extensions: ['exe'] }]
+        });
+        if (!pick.canceled && pick.filePaths && pick.filePaths[0]){
+          const exePath = pick.filePaths[0];
+          if (await pathExists(exePath)){
+            launcherMap[productId] = exePath;
+            await writeJsonSafe(mapFile, launcherMap);
+            cp.spawn(exePath, [], { detached: true, stdio: 'ignore' }).unref();
+            return { ok: true, launched: true, message: 'Đã mở ứng dụng từ file đã chọn', path: exePath };
+          }
+        }
+        // if user canceled or invalid, fall through to next steps
+      } else if (choice.response === 2) {
+        return { ok: false, message: 'User cancelled' };
+      }
+    } catch (e) { /* ignore dialog errors */ }
+
+    // Try to detect installed app automatically before downloading
+    try {
+      const hint = product.executable_name || '';
+      const auto = await findInstalledExe(productName, hint);
+      if (auto && await pathExists(auto)){
+        launcherMap[productId] = auto;
+        await writeJsonSafe(mapFile, launcherMap);
+        cp.spawn(auto, [], { detached: true, stdio: 'ignore' }).unref();
+        return { ok: true, launched: true, message: 'Found installed app and launched', path: auto };
+      }
+    } catch (e) { /* ignore auto-detect errors */ }
+
+    if (!downloadUrl) {
+      return { ok: false, message: 'No download_url available for this product' };
+    }
+
+  // Download installer to userData/downloads
+    const dlDir = path.join(userDir, 'downloads');
+    await fs.mkdir(dlDir, { recursive: true });
+    let fileName = 'installer';
+    try { const u = new URL(downloadUrl); fileName = path.basename(u.pathname) || fileName; } catch {}
+    const dest = path.join(dlDir, fileName);
+
+    try {
+      const controller = { productId };
+      const startedAt = Date.now();
+      await downloadFile(downloadUrl, dest, (prog) => {
+        if (!wc) return;
+        const nowTs = Date.now();
+        const elapsedMs = nowTs - startedAt;
+        let speedBps = undefined, etaSec = undefined;
+        if (prog.downloaded && elapsedMs > 0) {
+          speedBps = Math.max(1, Math.floor((prog.downloaded * 1000) / elapsedMs));
+          if (prog.total && prog.total > 0) {
+            const remaining = Math.max(0, prog.total - prog.downloaded);
+            etaSec = Math.floor(remaining / speedBps);
+          }
+        }
+        if (prog.stage === 'start' || prog.stage === 'progress') wc.send('product-download-progress', { requestId, productId, file: dest, speedBps, etaSec, ...prog });
+        if (prog.stage === 'complete') wc.send('product-download-complete', { requestId, productId, file: dest, ...prog });
+        if (prog.stage === 'error') wc.send('product-download-error', { requestId, productId, file: dest, ...prog });
+      }, controller, requestId, wc);
+    } catch (err) {
+      if (wc) wc.send('product-download-error', { requestId, productId, file: dest, stage: 'error', message: err.message });
+      return { ok: false, message: 'Download failed: ' + err.message };
+    }
+
+    // Run installer or app depending on extension
+    const ext = path.extname(dest).toLowerCase();
+    try {
+      if (wc) wc.send('product-install-started', { requestId, productId, file: dest, ext });
+      let child;
+      if (ext === '.msi') {
+        child = cp.spawn('msiexec', ['/i', dest], { stdio: 'ignore' });
+      } else if (ext === '.exe') {
+        child = cp.spawn(dest, [], { stdio: 'ignore' });
+      } else {
+        // Unknown format: show in folder for manual action
+        await shell.showItemInFolder(dest);
+        return { ok: true, launchedInstaller: false, message: 'Downloaded. Please install manually.', path: dest };
+      }
+      if (child && wc) {
+        child.on('close', (code) => {
+          wc.send('product-install-closed', { requestId, productId, file: dest, code });
+        });
+      }
+    } catch (err) {
+      return { ok: false, message: 'Failed to launch installer: ' + err.message, path: dest };
+    }
+
+    // After installer launches, prompt user to locate the installed exe (optional but helpful for next launches)
+    try {
+      const result = await dialog.showOpenDialog({
+        title: 'Chọn file .exe của ' + productName + ' sau khi cài đặt',
+        properties: ['openFile'],
+        filters: [{ name: 'Executable', extensions: ['exe'] }]
+      });
+      if (!result.canceled && result.filePaths && result.filePaths[0]) {
+        const exePath = result.filePaths[0];
+        launcherMap[productId] = exePath;
+        await writeJsonSafe(mapFile, launcherMap);
+        // try launch immediately
+        try { cp.spawn(exePath, [], { detached: true, stdio: 'ignore' }).unref(); } catch {}
+        return { ok: true, installed: true, launched: true, path: exePath };
+      }
+    } catch (e) {
+      // ignore dialog errors
+    }
+
+    return { ok: true, launchedInstaller: true, message: 'Installer launched', path: dest, requestId };
+  } catch (err) {
+    return { ok: false, message: err.message };
+  }
+});
+
+// Cancel active product download by requestId
+ipcMain.handle('cancel-product-download', async (_e, requestId) => {
+  const ctrl = downloadControllers.get(requestId);
+  if (!ctrl || typeof ctrl.cancel !== 'function') return { ok: false, message: 'No active download' };
+  try { ctrl.cancel(); downloadControllers.delete(requestId); return { ok: true, cancelled: true }; } catch (err) { return { ok: false, message: err.message }; }
+});
+
+// Reveal file in folder
+ipcMain.handle('reveal-file', async (_e, filePath) => {
+  try { await shell.showItemInFolder(filePath); return { ok: true }; } catch (err) { return { ok: false, message: err.message }; }
 });
