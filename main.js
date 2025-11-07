@@ -9,6 +9,28 @@ const cp = require('child_process');
 const os = require('os');
 // Track active downloads by requestId for cancel support
 const downloadControllers = new Map();
+// Track launched child processes to terminate when parent app exits
+const launchedChildren = new Set();
+
+function spawnTracked(exe, args = [], options = {}){
+  const opts = Object.assign({ windowsHide: true, stdio: 'ignore', detached: false }, options || {});
+  const child = cp.spawn(exe, args, opts);
+  try {
+    launchedChildren.add(child);
+    child.on('exit', () => { launchedChildren.delete(child); });
+  } catch {}
+  return child;
+}
+
+function killProcessTree(pid){
+  if (!pid) return;
+  if (process.platform === 'win32') {
+    try { cp.execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true }, () => {}); } catch {}
+  } else {
+    try { process.kill(-pid, 'SIGTERM'); } catch {}
+    try { process.kill(pid, 'SIGTERM'); } catch {}
+  }
+}
 
 let pool;
 
@@ -313,6 +335,23 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow();
 });
 
+// Ensure all spawned child processes are terminated when the app quits
+app.on('before-quit', () => {
+  try {
+    for (const child of Array.from(launchedChildren)) {
+      try { killProcessTree(child.pid); } catch {}
+    }
+  } catch {}
+});
+
+app.on('will-quit', () => {
+  try {
+    for (const child of Array.from(launchedChildren)) {
+      try { killProcessTree(child.pid); } catch {}
+    }
+  } catch {}
+});
+
 // Provide a stable, persisted machine id for the renderer.
 // The id is stored in the app userData folder so it survives restarts and updates.
 ipcMain.handle('get-machine-id', async () => {
@@ -377,6 +416,117 @@ async function pathExists(p){ try { await fs.access(p); return true; } catch { r
 
 function normalizeName(s){ return (s || '').toString().toLowerCase().replace(/[^a-z0-9]/g,''); }
 
+// helper: simple normalize for fuzzy compare
+function _norm(s){ return (s || '').toString().toLowerCase().replace(/[^a-z0-9]/g,''); }
+
+// Extract VersionInfo and Authenticode publisher from a Windows executable using PowerShell
+async function getWinExeInfo(filePath){
+  if (process.platform !== 'win32') return {};
+  try {
+    const ps = (
+      "$ErrorActionPreference = 'SilentlyContinue';\n" +
+      "$path = '" + filePath.replace(/'/g, "''") + "';\n" +
+      "if (!(Test-Path -LiteralPath $path)) { '{}' | ConvertTo-Json -Compress; exit 0 }\n" +
+      "$fi = Get-Item -LiteralPath $path;\n" +
+      "$vi = $fi.VersionInfo;\n" +
+      "$sig = Get-AuthenticodeSignature -LiteralPath $path;\n" +
+      "$pub = $null; $subj = $null;\n" +
+      "if ($sig -and $sig.SignerCertificate) {\n" +
+      "  $subj = $sig.SignerCertificate.Subject;\n" +
+      "  try { $pub = $sig.SignerCertificate.GetNameInfo([System.Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false) } catch {}\n" +
+      "}\n" +
+      "[PSCustomObject]@{ FileName = $fi.Name; OriginalFilename = $vi.OriginalFilename; ProductName = $vi.ProductName; FileDescription = $vi.FileDescription; CompanyName = $vi.CompanyName; FileVersion = $vi.FileVersion; ProductVersion = $vi.ProductVersion; SignerSubject = $subj; Publisher = $pub } | ConvertTo-Json -Compress"
+    );
+    const out = await new Promise((resolve) => {
+      cp.execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { windowsHide: true, timeout: 10000, maxBuffer: 1024*1024 }, (err, stdout) => {
+        if (err) return resolve('{}');
+        resolve(stdout || '{}');
+      });
+    });
+    try { return JSON.parse(out); } catch { return {}; }
+  } catch { return {}; }
+}
+
+// Validate whether a picked exe matches the intended product using fields from DB (if provided)
+async function validateExeForProduct(exePath, product){
+  try {
+    const base = path.basename(exePath || '');
+    const info = await getWinExeInfo(exePath);
+    const expectedExe = (product.executable_name || product.exe || '').toString().trim();
+    const expectedPublisher = (product.expected_publisher || product.publisher || '').toString().trim();
+    const expectedProductName = (product.expected_product_name || product.name || '').toString().trim();
+
+    const reasons = [];
+
+    // Name/OriginalFilename check
+    if (expectedExe) {
+      const byBase = base.toLowerCase() === expectedExe.toLowerCase();
+      const byOriginal = info.OriginalFilename && info.OriginalFilename.toLowerCase() === expectedExe.toLowerCase();
+      if (!(byBase || byOriginal)) reasons.push('Tên file không khớp executable_name');
+    } else if (expectedProductName) {
+      const goal = _norm(expectedProductName);
+      const fields = [base, info.ProductName, info.FileDescription, info.OriginalFilename].filter(Boolean).map(_norm);
+      const anyHit = fields.some(f => f.includes(goal));
+      if (!anyHit) reasons.push('Thông tin VersionInfo không khớp tên sản phẩm');
+    }
+
+    // Publisher / Company check (if configured)
+    if (expectedPublisher) {
+      const want = _norm(expectedPublisher);
+      const company = _norm(info.CompanyName || '');
+      const publisher = _norm(info.Publisher || info.SignerSubject || '');
+      if (!(company.includes(want) || publisher.includes(want))) {
+        reasons.push('Nhà phát hành/Chữ ký số không khớp');
+      }
+    }
+
+    return { ok: reasons.length === 0, reason: reasons.join('; '), info };
+  } catch (e) {
+    return { ok: false, reason: e.message || 'Không xác định' };
+  }
+}
+
+// Heuristic to detect if a file is likely an installer rather than the main app binary
+function isLikelyInstaller(exePath, info){
+  try {
+    const ext = path.extname(exePath || '').toLowerCase();
+    if (ext === '.msi') return true;
+    const base = (path.basename(exePath || '').toLowerCase());
+    const dirLower = (path.dirname(exePath || '').toLowerCase());
+    const s = (t)=> (t||'').toString().toLowerCase();
+    const fields = [info?.ProductName, info?.FileDescription, info?.CompanyName, info?.OriginalFilename, info?.Publisher, info?.SignerSubject].map(s).join(' ');
+    const setupKeywords = ['setup','installer','install','bootstrapper','uninstall','update','updater','installshield','inno setup','nsis','squirrel'];
+    const baseHit = setupKeywords.some(k => base.includes(k));
+    const metaHit = setupKeywords.some(k => fields.includes(k));
+    const pathHit = dirLower.includes('downloads') || dirLower.includes('temp') || dirLower.includes('tmp');
+    // If located under Program Files or Local\Programs, it's more likely an installed app
+    const isProgramFiles = dirLower.includes('program files') || dirLower.includes(path.join('appdata','local','programs').toLowerCase());
+    if (baseHit || metaHit) return true;
+    if (pathHit && !isProgramFiles) return true;
+    return false;
+  } catch { return false; }
+}
+
+// Resolve Windows .lnk shortcut target path via PowerShell (best-effort, capped by callers)
+async function resolveShortcutTarget(lnkPath){
+  if (process.platform !== 'win32') return null;
+  try {
+    const ps = (
+      "$ErrorActionPreference='SilentlyContinue';\n"+
+      "$w = New-Object -ComObject WScript.Shell;\n"+
+      "$s = $w.CreateShortcut('" + lnkPath.replace(/'/g, "''") + "');\n"+
+      "if ($s -and $s.TargetPath) { $s.TargetPath }"
+    );
+    const out = await new Promise((resolve)=>{
+      cp.execFile('powershell.exe', ['-NoProfile','-NonInteractive','-Command', ps], { windowsHide: true, timeout: 6000 }, (err, stdout)=>{
+        if (err) return resolve('');
+        resolve((stdout||'').trim());
+      });
+    });
+    return out || null;
+  } catch { return null; }
+}
+
 async function findInstalledExe(productName, exeHint){
   // Quick heuristic: search common install locations for an .exe whose normalized name contains product name or matches exeHint
   const candidates = new Set();
@@ -389,6 +539,7 @@ async function findInstalledExe(productName, exeHint){
   const targetNorm = normalizeName(productName);
   const maxFiles = 8000;
   const maxDepth = 3;
+  let lnkResolved = 0;
   let scanned = 0;
   async function walk(dir, depth){
     if (depth > maxDepth) return null;
@@ -410,7 +561,21 @@ async function findInstalledExe(productName, exeHint){
         if (lower.endsWith('.exe')){
           const norm = normalizeName(ent.name);
           if ((exeHint && lower === exeHint.toLowerCase()) || (targetNorm && norm.includes(targetNorm))){
-            return full;
+            // avoid returning installers if possible
+            const info = await getWinExeInfo(full);
+            if (!isLikelyInstaller(full, info)) return full;
+          }
+        } else if (lower.endsWith('.lnk') && lnkResolved < 100) {
+          // Resolve a few shortcuts in Start Menu
+          lnkResolved++;
+          const target = await resolveShortcutTarget(full);
+          if (target && target.toLowerCase().endsWith('.exe')){
+            const base = path.basename(target);
+            const norm = normalizeName(base);
+            if ((exeHint && base.toLowerCase() === exeHint.toLowerCase()) || (targetNorm && norm.includes(targetNorm))){
+              const info = await getWinExeInfo(target);
+              if (!isLikelyInstaller(target, info)) return target;
+            }
           }
         }
       }
@@ -483,18 +648,101 @@ ipcMain.handle('open-or-install-product', async (_e, payload) => {
     const downloadUrl = product.download_url || p.download_url || '';
     const requestId = p.requestId || ((crypto && typeof crypto.randomUUID==='function') ? crypto.randomUUID() : (Date.now().toString(36)+Math.random().toString(36).slice(2)) );
     const wc = _e?.sender;
+    const parentWin = (BrowserWindow.getFocusedWindow ? (BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]) : null) || null;
 
     if (!productId) return { ok: false, message: 'Missing product_id' };
 
     const userDir = app.getPath('userData');
     const mapFile = path.join(userDir, 'product_launchers.json');
     const launcherMap = await readJsonSafe(mapFile, {});
+    if (p.resetMapping && productId && launcherMap[productId]) {
+      delete launcherMap[productId];
+      await writeJsonSafe(mapFile, launcherMap);
+    }
     let existingPath = launcherMap[productId];
+    let bypassInitialAsk = false;
 
     if (existingPath && await pathExists(existingPath)) {
       try {
-        cp.spawn(existingPath, [], { detached: true, stdio: 'ignore' }).unref();
-        return { ok: true, launched: true, message: 'Launched existing app', path: existingPath };
+        if (p.silentWhenMapped === true && !p.forcePrompt) {
+          const val = await validateExeForProduct(existingPath, product);
+          if (val.ok) {
+            spawnTracked(existingPath, [], { stdio: 'ignore' });
+            return { ok: true, launched: true, message: 'Launched existing app', path: existingPath };
+          } else {
+            delete launcherMap[productId];
+            await writeJsonSafe(mapFile, launcherMap);
+          }
+        } else {
+          // Hỏi người dùng dù đã có mapping
+          const choiceMapped = await dialog.showMessageBox(parentWin, {
+            type: 'question',
+            title: 'Mở ứng dụng',
+            message: `Đã tìm thấy file chạy đã lưu cho '${productName}'. Bạn muốn làm gì?`,
+            detail: existingPath,
+            buttons: ['Mở ngay', 'Chọn file .exe', 'Tải và cài đặt', 'Hủy'],
+            defaultId: 0,
+            cancelId: 3,
+            noLink: true
+          });
+          if (choiceMapped.response === 0) {
+            const val = await validateExeForProduct(existingPath, product);
+            if (val.ok) {
+              spawnTracked(existingPath, [], { stdio: 'ignore' });
+              return { ok: true, launched: true, message: 'Launched existing app', path: existingPath };
+            } else {
+              delete launcherMap[productId];
+              await writeJsonSafe(mapFile, launcherMap);
+              // tiếp tục sang hỏi/cài đặt
+            }
+          } else if (choiceMapped.response === 1) {
+            // Nhảy vào luồng chọn file
+            while (true) {
+              const pick = await dialog.showOpenDialog(parentWin, {
+                title: 'Chọn file .exe của ' + productName,
+                properties: ['openFile'],
+                filters: [{ name: 'Executable', extensions: ['exe'] }]
+              });
+              if (pick.canceled || !pick.filePaths || !pick.filePaths[0]) break;
+              const exePath = pick.filePaths[0];
+              if (!(await pathExists(exePath))) break;
+              const val = await validateExeForProduct(exePath, product);
+              const info = await getWinExeInfo(exePath);
+              const likelyInstaller = isLikelyInstaller(exePath, info) && !product.is_portable;
+              if (val.ok && !likelyInstaller) {
+                launcherMap[productId] = exePath;
+                await writeJsonSafe(mapFile, launcherMap);
+                spawnTracked(exePath, [], { stdio: 'ignore' });
+                return { ok: true, launched: true, message: 'Đã mở ứng dụng từ file đã chọn', path: exePath };
+              } else if (likelyInstaller) {
+                const act = await dialog.showMessageBox(parentWin, {
+                  type: 'question',
+                  title: 'Bạn đang chọn file cài đặt',
+                  message: 'File này có vẻ là bộ cài. Bạn muốn chạy cài đặt rồi chọn lại file chạy?',
+                  buttons: ['Chạy cài đặt', 'Chọn lại', 'Hủy'],
+                  defaultId: 0, cancelId: 2, noLink: true
+                });
+                if (act.response === 0) { try { spawnTracked(exePath, [], { stdio: 'ignore' }); } catch {} continue; }
+                if (act.response === 2) return { ok: false, message: 'User cancelled' };
+              } else {
+                const retry = await dialog.showMessageBox(parentWin, {
+                  type: 'warning',
+                  title: 'File không khớp ứng dụng',
+                  message: 'File .exe bạn chọn không khớp với ứng dụng yêu cầu.',
+                  detail: val.reason || 'Vui lòng chọn đúng file thực thi của ứng dụng.',
+                  buttons: ['Chọn lại', 'Hủy'],
+                  defaultId: 0, cancelId: 1, noLink: true
+                });
+                if (retry.response === 1) return { ok: false, message: 'User cancelled' };
+              }
+            }
+          } else if (choiceMapped.response === 2) {
+            // Tải và cài đặt -> bỏ qua prompt ban đầu
+            bypassInitialAsk = true;
+          } else {
+            return { ok: false, message: 'User cancelled' };
+          }
+        }
       } catch (err) {
         // fall through to re-install
       }
@@ -502,7 +750,8 @@ ipcMain.handle('open-or-install-product', async (_e, payload) => {
 
     // Simpler path: ask user if they want to chọn file .exe có sẵn hay tải từ Internet
     try {
-      const choice = await dialog.showMessageBox({
+      if (bypassInitialAsk) throw new Error('bypass-initial-ask');
+      const choice = await dialog.showMessageBox(parentWin, {
         type: 'question',
         title: 'Mở ứng dụng',
         message: `Bạn đã cài '${productName}' chưa?`,
@@ -513,19 +762,55 @@ ipcMain.handle('open-or-install-product', async (_e, payload) => {
         noLink: true
       });
       if (choice.response === 0) {
-        // Pick existing exe
-        const pick = await dialog.showOpenDialog({
-          title: 'Chọn file .exe của ' + productName,
-          properties: ['openFile'],
-          filters: [{ name: 'Executable', extensions: ['exe'] }]
-        });
-        if (!pick.canceled && pick.filePaths && pick.filePaths[0]){
+        // Pick existing exe (loop until valid or cancel)
+        while (true) {
+          const pick = await dialog.showOpenDialog(parentWin, {
+            title: 'Chọn file .exe của ' + productName,
+            properties: ['openFile'],
+            filters: [{ name: 'Executable', extensions: ['exe'] }]
+          });
+          if (pick.canceled || !pick.filePaths || !pick.filePaths[0]) break;
+
           const exePath = pick.filePaths[0];
-          if (await pathExists(exePath)){
+          if (!(await pathExists(exePath))) break;
+
+          const val = await validateExeForProduct(exePath, product);
+          const info = await getWinExeInfo(exePath);
+          const likelyInstaller = isLikelyInstaller(exePath, info) && !product.is_portable;
+          if (val.ok && !likelyInstaller) {
             launcherMap[productId] = exePath;
             await writeJsonSafe(mapFile, launcherMap);
-            cp.spawn(exePath, [], { detached: true, stdio: 'ignore' }).unref();
+            spawnTracked(exePath, [], { stdio: 'ignore' });
             return { ok: true, launched: true, message: 'Đã mở ứng dụng từ file đã chọn', path: exePath };
+          } else if (likelyInstaller) {
+            const act = await dialog.showMessageBox(parentWin, {
+              type: 'question',
+              title: 'Bạn đang chọn file cài đặt',
+              message: 'File bạn chọn có vẻ là bộ cài (installer). Bạn muốn chạy cài đặt và sau đó chọn file chạy của ứng dụng?',
+              detail: 'Khuyến nghị: chạy cài đặt để app nằm trong Program Files/AppData rồi chọn đúng file chạy của app.',
+              buttons: ['Chạy cài đặt', 'Chọn lại', 'Hủy'],
+              defaultId: 0, cancelId: 2, noLink: true
+            });
+            if (act.response === 0) {
+              try { spawnTracked(exePath, [], { stdio: 'ignore' }); } catch {}
+              // Sau khi cài, yêu cầu chọn file chạy thật
+              continue;
+            }
+            if (act.response === 2) return { ok: false, message: 'User cancelled' };
+            // chọn lại -> lặp tiếp
+          } else {
+            const retry = await dialog.showMessageBox(parentWin, {
+              type: 'warning',
+              title: 'File không khớp ứng dụng',
+              message: 'File .exe bạn chọn không khớp với ứng dụng yêu cầu.',
+              detail: val.reason || 'Vui lòng chọn đúng file thực thi của ứng dụng.',
+              buttons: ['Chọn lại', 'Hủy'],
+              defaultId: 0,
+              cancelId: 1,
+              noLink: true
+            });
+            if (retry.response === 1) return { ok: false, message: 'User cancelled' };
+            // if chọn lại -> lặp tiếp
           }
         }
         // if user canceled or invalid, fall through to next steps
@@ -539,10 +824,17 @@ ipcMain.handle('open-or-install-product', async (_e, payload) => {
       const hint = product.executable_name || '';
       const auto = await findInstalledExe(productName, hint);
       if (auto && await pathExists(auto)){
-        launcherMap[productId] = auto;
-        await writeJsonSafe(mapFile, launcherMap);
-        cp.spawn(auto, [], { detached: true, stdio: 'ignore' }).unref();
-        return { ok: true, launched: true, message: 'Found installed app and launched', path: auto };
+        const info = await getWinExeInfo(auto);
+        const likelyInstaller = isLikelyInstaller(auto, info) && !product.is_portable;
+        if (!likelyInstaller){
+          const val = await validateExeForProduct(auto, product);
+          if (val.ok) {
+            launcherMap[productId] = auto;
+            await writeJsonSafe(mapFile, launcherMap);
+            spawnTracked(auto, [], { stdio: 'ignore' });
+            return { ok: true, launched: true, message: 'Found installed app and launched', path: auto };
+          }
+        }
       }
     } catch (e) { /* ignore auto-detect errors */ }
 
@@ -587,9 +879,26 @@ ipcMain.handle('open-or-install-product', async (_e, payload) => {
       if (wc) wc.send('product-install-started', { requestId, productId, file: dest, ext });
       let child;
       if (ext === '.msi') {
-        child = cp.spawn('msiexec', ['/i', dest], { stdio: 'ignore' });
+  child = spawnTracked('msiexec', ['/i', dest], { stdio: 'ignore' });
       } else if (ext === '.exe') {
-        child = cp.spawn(dest, [], { stdio: 'ignore' });
+        // Determine if downloaded exe is an installer or a portable app
+        const info = await getWinExeInfo(dest);
+        const likelyInstaller = isLikelyInstaller(dest, info) && !product.is_portable;
+        if (likelyInstaller) {
+          child = spawnTracked(dest, [], { stdio: 'ignore' });
+        } else {
+          // Treat as portable app: validate and launch, then persist mapping
+          const val = await validateExeForProduct(dest, product);
+          if (val.ok) {
+            launcherMap[productId] = dest;
+            await writeJsonSafe(mapFile, launcherMap);
+            try { spawnTracked(dest, [], { stdio: 'ignore' }); } catch {}
+            return { ok: true, launched: true, message: 'Đã tải và mở ứng dụng dạng portable', path: dest };
+          }
+          // If validation fails, fallback to showing in folder
+          await shell.showItemInFolder(dest);
+          return { ok: true, launchedInstaller: false, message: 'Đã tải xong. Vui lòng cài đặt hoặc chọn đúng file chạy của ứng dụng.', path: dest };
+        }
       } else {
         // Unknown format: show in folder for manual action
         await shell.showItemInFolder(dest);
@@ -606,18 +915,48 @@ ipcMain.handle('open-or-install-product', async (_e, payload) => {
 
     // After installer launches, prompt user to locate the installed exe (optional but helpful for next launches)
     try {
-      const result = await dialog.showOpenDialog({
-        title: 'Chọn file .exe của ' + productName + ' sau khi cài đặt',
-        properties: ['openFile'],
-        filters: [{ name: 'Executable', extensions: ['exe'] }]
-      });
-      if (!result.canceled && result.filePaths && result.filePaths[0]) {
+      while (true) {
+        const result = await dialog.showOpenDialog(parentWin, {
+          title: 'Chọn file .exe của ' + productName + ' sau khi cài đặt',
+          properties: ['openFile'],
+          filters: [{ name: 'Executable', extensions: ['exe'] }]
+        });
+        if (result.canceled || !result.filePaths || !result.filePaths[0]) break;
+
         const exePath = result.filePaths[0];
-        launcherMap[productId] = exePath;
-        await writeJsonSafe(mapFile, launcherMap);
-        // try launch immediately
-        try { cp.spawn(exePath, [], { detached: true, stdio: 'ignore' }).unref(); } catch {}
-        return { ok: true, installed: true, launched: true, path: exePath };
+        const info = await getWinExeInfo(exePath);
+        const likelyInstaller = isLikelyInstaller(exePath, info) && !product.is_portable;
+        const val = await validateExeForProduct(exePath, product);
+        if (val.ok && !likelyInstaller) {
+          launcherMap[productId] = exePath;
+          await writeJsonSafe(mapFile, launcherMap);
+          // try launch immediately
+          try { spawnTracked(exePath, [], { stdio: 'ignore' }); } catch {}
+          return { ok: true, installed: true, launched: true, path: exePath };
+        } else if (likelyInstaller) {
+          const retry = await dialog.showMessageBox(parentWin, {
+            type: 'warning',
+            title: 'Bạn đang chọn file cài đặt',
+            message: 'File này có vẻ là bộ cài. Vui lòng chọn file chạy của ứng dụng sau khi cài (thường ở Program Files / AppData).',
+            buttons: ['Chọn lại', 'Bỏ qua'],
+            defaultId: 0,
+            cancelId: 1,
+            noLink: true
+          });
+          if (retry.response === 1) break;
+        } else {
+          const retry = await dialog.showMessageBox(parentWin, {
+            type: 'warning',
+            title: 'File không khớp ứng dụng',
+            message: 'File .exe bạn chọn không khớp với ứng dụng yêu cầu.',
+            detail: val.reason || 'Vui lòng chọn đúng file thực thi của ứng dụng.',
+            buttons: ['Chọn lại', 'Bỏ qua'],
+            defaultId: 0,
+            cancelId: 1,
+            noLink: true
+          });
+          if (retry.response === 1) break;
+        }
       }
     } catch (e) {
       // ignore dialog errors
